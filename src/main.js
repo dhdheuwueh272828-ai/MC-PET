@@ -1,9 +1,9 @@
 import * as THREE from 'three';
 import { loadImage, normalizeSkin, readFileAsDataURL, createDefaultSkin } from './skin.js';
 import { PlayerModel } from './model.js';
-import { buildWorkspace, DESK_COLORS, GEAR_COLORS } from './scene.js';
+import { buildWorkspace, buildProps, DESK_COLORS, GEAR_COLORS } from './scene.js';
 import { THEMES, buildTheme, disposeTheme } from './themes.js';
-import { PetController, STATES } from './pet.js';
+import { PetController, STATES, sanitizeMotion } from './pet.js';
 import { createPip } from './pip.js';
 
 // Electron preload 가 노출하는 브리지 (Windows 데스크톱 펫 모드)
@@ -75,6 +75,8 @@ scene.add(screenLight);
 
 const workspace = buildWorkspace();
 scene.add(workspace.group);
+const props = buildProps();
+scene.add(props.book, props.bulb);
 
 const model = new PlayerModel(createDefaultSkin());
 scene.add(model.root);
@@ -121,7 +123,7 @@ let currentSkin = null;
 let pip = null;
 let armsMode = store.get('arms', 'auto');
 
-const pet = new PetController(model, workspace, { onSay: say });
+const pet = new PetController(model, workspace, { onSay: (line, state) => speak(line, state), onHearts: spawnHearts, props });
 
 function applySkin(skin) {
   currentSkin = skin;
@@ -195,7 +197,10 @@ function setMode(mode) {
 
 // ── 말풍선 / 파티클 / 토스트 ──
 let bubbleTimer = 0;
+const recentLines = [];
 function say(text) {
+  recentLines.push(text);
+  if (recentLines.length > 6) recentLines.shift();
   bubble.textContent = text;
   bubble.hidden = false;
   bubble.style.animation = 'none';
@@ -212,6 +217,22 @@ function toast(msg) {
   el.hidden = false;
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => (el.hidden = true), 2600);
+}
+
+// 쓰다듬을 때 머리 위로 하트
+const headWorldTmp = new THREE.Vector3();
+function spawnHearts() {
+  model.head.getWorldPosition(headWorldTmp);
+  headWorldTmp.y += 9;
+  const p = toScreen(headWorldTmp);
+  const el = document.createElement('span');
+  el.className = 'glyph heart';
+  el.textContent = Math.random() < 0.5 ? '❤' : '💕';
+  el.style.left = `${p.x + (Math.random() - 0.5) * 40}px`;
+  el.style.top = `${p.y}px`;
+  el.style.setProperty('--dx', `${(Math.random() - 0.5) * 30}px`);
+  particles.appendChild(el);
+  setTimeout(() => el.remove(), 1500);
 }
 
 const GLYPHS = ['{ }', '</>', ';', '01', '=>', '()', '#', '++', '[ ]', '&&'];
@@ -288,9 +309,20 @@ function toScreen(v) {
 // ── 입력: 탭/클릭 = 인사, 드래그 = (데스크톱) 창 이동, 우클릭 = 메뉴 ──
 let press = null;
 let longPressTimer = 0;
+// 머리 위를 문지르면 쓰다듬기
+const headProbe = new THREE.Vector3();
+function headHit(x, y) {
+  model.head.getWorldPosition(headProbe);
+  headProbe.y += 4;
+  const c = toScreen(headProbe);
+  headProbe.y += 6;
+  const r = Math.max(24, Math.abs(toScreen(headProbe).y - c.y) * 1.25);
+  return Math.hypot(x - c.x, y - c.y) < r;
+}
+
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
-  press = { x: e.screenX, y: e.screenY, moved: false, long: false };
+  press = { x: e.screenX, y: e.screenY, moved: false, long: false, onHead: headHit(e.clientX, e.clientY), rub: 0, lx: e.clientX, ly: e.clientY };
   // 모바일: 길게 누르면 메뉴(패널) 열기/닫기
   if (!desktop) {
     clearTimeout(longPressTimer);
@@ -301,19 +333,32 @@ canvas.addEventListener('pointerdown', (e) => {
     }, 550);
   }
   canvas.setPointerCapture(e.pointerId);
-  if (desktop) bridge.dragStart();
+  // 머리를 잡으면 창을 옮기는 대신 쓰다듬기
+  if (desktop && !press.onHead) bridge.dragStart();
 });
 canvas.addEventListener('pointermove', (e) => {
   pet.look((e.clientX / viewW) * 2 - 1, -(e.clientY / viewH) * 2 + 1);
   if (desktop) updateClickThrough(e.clientX, e.clientY);
   if (!press) return;
   if (Math.hypot(e.screenX - press.x, e.screenY - press.y) > 4) press.moved = true;
+  if (press.onHead) {
+    press.rub += Math.hypot(e.clientX - press.lx, e.clientY - press.ly);
+    press.lx = e.clientX;
+    press.ly = e.clientY;
+    if (press.rub > 50) {
+      press.rub = 0;
+      const first = pet.state !== 'happy';
+      pet.pet();
+      if (first) onPetted();
+    }
+    return;
+  }
   if (desktop && press.moved) bridge.dragMove();
 });
 canvas.addEventListener('pointerup', () => {
   if (!press) return;
   clearTimeout(longPressTimer);
-  if (desktop) bridge.dragEnd();
+  if (desktop && !press.onHead) bridge.dragEnd();
   if (!press.moved && !press.long) pet.poke();
   press = null;
 });
@@ -402,7 +447,7 @@ function syncPipButton() {
 for (const b of $('arms').querySelectorAll('button')) b.onclick = () => setArms(b.dataset.v);
 
 const modes = $('modes');
-for (const [key, label] of [['auto', '🔁 자동'], ...Object.entries(STATES).filter(([k]) => k !== 'wave').map(([k, s]) => [k, s.label])]) {
+for (const [key, label] of [['auto', '🔁 자동'], ...Object.entries(STATES).filter(([k]) => !['wave', 'happy', 'custom'].includes(k)).map(([k, s]) => [k, s.label])]) {
   const b = document.createElement('button');
   b.dataset.v = key;
   b.textContent = label;
@@ -593,6 +638,237 @@ window.addEventListener('drop', (e) => {
   if (file) loadSkinFromFile(file);
 });
 
+// ── Claude AI: 실시간 대사 · 말 걸기 · 새 동작 만들기 ──
+let ai = null;
+const aiState = { lastLineAt: 0, lastPetLineAt: 0, busy: false, history: [] };
+const AI_MODELS = [
+  ['claude-opus-5-5', 'Opus 5.5'],
+  ['claude-haiku-5-5', 'Haiku 5.5 (저렴)'],
+];
+const aiKey = () => store.get('aiKey', '');
+const aiModel = () => store.get('aiModel', AI_MODELS[0][0]);
+const aiLines = () => store.get('aiLines', 'rare');
+
+async function getAI() {
+  if (!ai) {
+    // SDK 는 AI 를 쓸 때만 불러온다 (처음 로딩을 가볍게)
+    const { createAI } = await import('./ai.js');
+    ai = createAI({ getKey: aiKey, getModel: aiModel });
+  }
+  return ai;
+}
+
+const STATE_DESC = {
+  work: '컴퓨터로 코딩하는 중', think: '골똘히 고민하는 중', aha: '방금 뭔가를 깨달음', read: '책을 읽는 중',
+  stretch: '기지개를 켜는 중', sip: '커피를 마시는 중', sleep: '꾸벅꾸벅 조는 중', wave: '주인에게 손을 흔드는 중',
+  happy: '주인이 머리를 쓰다듬어 줘서 기분이 좋음', custom: '특별한 동작을 하는 중',
+};
+function aiContext(event) {
+  const now = new Date();
+  return {
+    state: STATE_DESC[pet.state] ?? pet.state,
+    place: THEMES.find(([id]) => id === deco.theme)?.[1].replace(/^\S+\s/, '') ?? '기본',
+    setup: deco.setup === 'desktop' ? '모니터+키보드+마우스' : '노트북',
+    time: `${now.getHours()}시 ${now.getMinutes()}분`,
+    event,
+    recent: recentLines.slice(-5),
+  };
+}
+
+// 펫이 말하려 할 때: AI 대사가 켜져 있고 간격이 지났으면 Claude 에게 한마디를 받아 온다
+function speak(line, state) {
+  const interval = { rare: 300, often: 60 }[aiLines()];
+  const immediate = ['wave', 'happy', 'aha', 'sleep', 'custom'].includes(state);
+  if (!aiKey() || !interval || immediate || aiState.busy || performance.now() / 1000 - aiState.lastLineAt < interval) {
+    say(line);
+    return;
+  }
+  aiState.busy = true;
+  aiState.lastLineAt = performance.now() / 1000;
+  getAI()
+    .then((a) => a.line(aiContext()))
+    .then((text) => pet.state === state && say(text), () => say(line))
+    .finally(() => (aiState.busy = false));
+}
+
+// 쓰다듬기 시작: 기본 반응을 바로 하고, AI 가 켜져 있으면 잠시 뒤 Claude 의 대사
+function onPetted() {
+  if (!aiKey() || aiLines() === 'off' || aiState.busy) return;
+  const now = performance.now() / 1000;
+  if (now - aiState.lastPetLineAt < 20) return;
+  aiState.lastPetLineAt = now;
+  aiState.busy = true;
+  getAI()
+    .then((a) => a.line(aiContext('주인이 머리를 쓰다듬어 줬어')))
+    .then((text) => say(text), () => {})
+    .finally(() => (aiState.busy = false));
+}
+
+// 입력 받기: 휴대폰·아이패드는 시스템 입력 창, Windows(Electron)는 직접 만든 창
+function ask(label, value = '') {
+  if (!desktop) return Promise.resolve(prompt(label, value));
+  return new Promise((resolve) => {
+    const modal = $('modal');
+    const input = $('modal-input');
+    $('modal-label').textContent = label;
+    input.value = value;
+    modal.hidden = false;
+    if (ignoring) {
+      ignoring = false;
+      bridge.setIgnoreMouse(false);
+    }
+    setTimeout(() => input.focus(), 0);
+    const done = (v) => {
+      modal.hidden = true;
+      $('modal-form').onsubmit = $('modal-cancel').onclick = null;
+      resolve(v);
+    };
+    $('modal-form').onsubmit = (e) => {
+      e.preventDefault();
+      done(input.value);
+    };
+    $('modal-cancel').onclick = () => done(null);
+  });
+}
+
+// 커스텀 동작 (Claude 가 만든 키프레임) — 이 기기에 저장
+function loadMotions() {
+  const list = store.json('customMotions', []);
+  return Array.isArray(list) ? list : [];
+}
+function saveMotions(list) {
+  if (!store.set('customMotions', JSON.stringify(list))) toast('저장 공간이 부족해요');
+  pet.customMotions = list;
+  renderMotions();
+}
+
+function renderMotions() {
+  const box = $('motion-list');
+  box.replaceChildren();
+  const list = loadMotions();
+  if (!list.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = '✨ 새 동작 만들기로 "춤추기", "만세 세 번" 처럼 설명하면 Claude 가 동작을 만들어요.';
+    box.appendChild(p);
+    return;
+  }
+  list.forEach((m, i) => {
+    const row = document.createElement('div');
+    row.className = 'preset';
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = `✨ ${m.name}`;
+    const desc = document.createElement('div');
+    desc.className = 'desc';
+    desc.textContent = `${m.duration.toFixed(1)}초${m.loop ? ' · 반복' : ''}${m.line ? ` · "${m.line}"` : ''}`;
+    meta.append(name, desc);
+    const play = document.createElement('button');
+    play.textContent = '▶';
+    play.title = '해 보기';
+    play.onclick = () => pet.playCustom(m);
+    const del = document.createElement('button');
+    del.textContent = '🗑';
+    del.title = '삭제';
+    del.onclick = () => {
+      if (confirm(`'${m.name}' 동작을 지울까요?`)) saveMotions(loadMotions().filter((_, j) => j !== i));
+    };
+    row.append(meta, play, del);
+    box.appendChild(row);
+  });
+}
+
+function syncAI() {
+  const key = aiKey();
+  $('ai-key-state').textContent = key ? `🔑 …${key.slice(-4)}` : '키 없음';
+  $('btn-ai-key').textContent = key ? '🔑 키 바꾸기' : '🔑 API 키 입력';
+  $('btn-ai-key-del').hidden = !key;
+  for (const b of $('ai-model').children) b.classList.toggle('on', b.dataset.v === aiModel());
+  for (const b of $('ai-lines').children) b.classList.toggle('on', b.dataset.v === aiLines());
+}
+
+for (const [id, label] of AI_MODELS) {
+  const b = document.createElement('button');
+  b.dataset.v = id;
+  b.textContent = label;
+  b.onclick = () => {
+    store.set('aiModel', id);
+    syncAI();
+  };
+  $('ai-model').appendChild(b);
+}
+for (const b of $('ai-lines').children)
+  b.onclick = () => {
+    store.set('aiLines', b.dataset.v);
+    syncAI();
+  };
+
+$('btn-ai-key').onclick = async () => {
+  const key = (await ask('Claude API 키를 붙여 넣어 주세요 (sk-ant-로 시작)'))?.trim();
+  if (!key) return;
+  if (!key.startsWith('sk-ant-')) return toast('Claude API 키는 sk-ant- 로 시작해요');
+  store.set('aiKey', key);
+  syncAI();
+  toast('API 키 저장 완료 🔑');
+};
+$('btn-ai-key-del').onclick = () => {
+  if (!confirm('이 기기에서 API 키를 지울까요?')) return;
+  store.set('aiKey', null);
+  syncAI();
+};
+
+// 말 걸기: 대답 + 어울리는 동작
+$('btn-chat').onclick = async () => {
+  const msg = (await ask('펫에게 할 말'))?.trim();
+  if (!msg) return;
+  const motions = [
+    ...Object.entries(STATES)
+      .filter(([k]) => !['custom'].includes(k))
+      .map(([k, s]) => [k, s.label]),
+    ...loadMotions().map((m, i) => [`custom${i}`, `✨ ${m.name} (직접 만든 동작)`]),
+  ];
+  toast('💬 생각하는 중...');
+  try {
+    const a = await getAI();
+    const out = await a.chat(msg, aiContext(`주인이 "${msg}" 라고 말을 걸었어`), motions, aiState.history.slice(-4));
+    aiState.history.push([msg, out.line]);
+    if (out.motion.startsWith('custom')) {
+      const m = loadMotions()[Number(out.motion.slice(6))];
+      if (m) pet.playCustom({ ...m, line: '' });
+    } else if (out.motion === 'happy' || out.motion === 'wave') {
+      pet.interrupt(out.motion);
+    } else {
+      pet.setState(out.motion, { manual: store.get('mode', 'auto') !== 'auto' });
+    }
+    say(out.line);
+    $('toast').hidden = true;
+  } catch (e) {
+    toast(e.message || 'Claude 와 대화하지 못했어요');
+  }
+};
+
+// 새 동작 만들기
+$('btn-new-motion').onclick = async () => {
+  const desc = (await ask('어떤 동작을 만들까요? (예: 신나게 춤추기, 만세 세 번, 책 덮고 박수)'))?.trim();
+  if (!desc) return;
+  toast('✨ Claude 가 동작을 만드는 중... (10~30초)');
+  try {
+    const a = await getAI();
+    const motion = sanitizeMotion(await a.motion(desc));
+    saveMotions([...loadMotions(), motion]);
+    pet.playCustom(motion);
+    toast(`'${motion.name}' 동작이 생겼어요!`);
+  } catch (e) {
+    toast(e.message || '동작을 만들지 못했어요');
+  }
+};
+
+pet.customMotions = loadMotions();
+renderMotions();
+syncAI();
+
 // ── 시작 ──
 const saved = store.get('skin', null);
 if (saved) loadSkinFromURL(saved, { save: false }).catch(() => applySkin(createDefaultSkin()));
@@ -627,7 +903,7 @@ function frame() {
 
   if (!bubble.hidden) {
     model.head.getWorldPosition(headWorld);
-    headWorld.y += 12;
+    headWorld.y += pet.state === 'aha' ? 19 : 12; // 전구가 떠 있으면 말풍선을 더 위로
     const p = toScreen(headWorld);
     bubble.style.left = `${p.x}px`;
     bubble.style.top = `${p.y}px`;

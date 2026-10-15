@@ -273,3 +273,60 @@ function createCodeScreen() {
   tex.userData.tick(0);
   return tex;
 }
+
+/** 동작용 소품: 펼친 책(독서), 전구(아하!) */
+export function buildProps() {
+  const lambert = (o) => new THREE.MeshLambertMaterial(o);
+  // 펼친 책: 평평하게 만든 뒤 얼굴 쪽으로 기울인다 (책등은 z 방향)
+  const book = new THREE.Group();
+  const cover = lambert({ color: '#b03a2e' });
+  const paper = lambert({ color: '#f7f1e1' });
+  for (const side of [-1, 1]) {
+    const half = new THREE.Group();
+    half.rotation.z = -side * 0.18;
+    const c = new THREE.Mesh(new THREE.BoxGeometry(5, 0.3, 7), cover);
+    c.position.x = side * 2.5;
+    const p = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.5, 6.4), paper);
+    p.position.set(side * 2.4, 0.35, 0);
+    // 글줄
+    for (let i = 0; i < 5; i++) {
+      const line = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.05, 0.3), lambert({ color: '#8a8070' }));
+      line.position.set(side * 2.4, 0.62, -2.2 + i * 1.1);
+      half.add(line);
+    }
+    half.add(c, p);
+    book.add(half);
+  }
+  // 넘어가는 책장
+  const leafPivot = new THREE.Group();
+  const leaf = new THREE.Mesh(new THREE.BoxGeometry(4.4, 0.08, 6.2), paper);
+  leaf.position.x = 2.3;
+  leafPivot.position.y = 0.65;
+  leafPivot.add(leaf);
+  book.add(leafPivot);
+  book.position.set(0, 20.6, 8.2);
+  book.rotation.x = -0.85;
+  book.visible = false;
+  book.userData.tick = (dt, st) => {
+    const u = (st % 4.5) / 4.5;
+    leafPivot.rotation.z = u > 0.85 ? ((u - 0.85) / 0.15) * Math.PI : 0;
+  };
+
+  // 전구: 머리 위에 뿅
+  const bulb = new THREE.Group();
+  const glow = new THREE.MeshBasicMaterial({ color: '#ffe066' });
+  bulb.add(new THREE.Mesh(new THREE.BoxGeometry(3, 3.4, 3), glow));
+  const base = new THREE.Mesh(new THREE.BoxGeometry(2, 1.2, 2), lambert({ color: '#9aa1ad' }));
+  base.position.y = -2.3;
+  bulb.add(base);
+  const ray = new THREE.MeshBasicMaterial({ color: '#fff3b0' });
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    const r = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.4, 0.5), ray);
+    r.position.set(Math.cos(a) * 3.2, 0.6 + Math.sin(a) * 3.2, 0);
+    r.rotation.z = a - Math.PI / 2;
+    bulb.add(r);
+  }
+  bulb.visible = false;
+  return { book, bulb };
+}
