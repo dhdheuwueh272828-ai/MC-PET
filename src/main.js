@@ -947,11 +947,20 @@ function openModal({ label, value = '', hint = '', link = null, paste = false, s
     const input = $('modal-input');
     const textarea = $('modal-textarea');
     // 두 번째 칸(여러 줄)이 있으면 결과는 { value, area }
-    $('modal-label2').hidden = textarea.hidden = !area;
+    const count = $('modal-count');
+    $('modal-label2').hidden = textarea.hidden = count.hidden = !area;
+    // 여러 줄 칸 아래 글자 수 표시 (최대치에 가까우면 색을 바꿔 알림)
+    const updateCount = () => {
+      const max = textarea.maxLength > 0 ? textarea.maxLength : 1000;
+      count.textContent = `${textarea.value.length} / ${max}`;
+      count.classList.toggle('near', textarea.value.length >= max * 0.9);
+    };
+    textarea.oninput = area ? updateCount : null;
     if (area) {
       $('modal-label2').textContent = area.label;
       textarea.value = area.value ?? '';
       textarea.placeholder = area.placeholder ?? '';
+      updateCount();
     }
     input.placeholder = area?.inputPlaceholder ?? '';
     $('modal-label').textContent = label;
@@ -1110,9 +1119,10 @@ $('btn-ai-key-del').onclick = () => {
 };
 
 // ── 🎭 캐릭터 성격 (Gemini/Claude 가 대사·대화·동작에 반영) ──
+const PERSONA_TRAITS_MAX = 1000; // 성격·말투 최대 글자 수 (index.html 의 maxlength 와 같게)
 let persona = { name: '', traits: '', ...store.json('persona', {}) };
 function setPersona(p) {
-  persona = { name: String(p?.name ?? '').slice(0, 20), traits: String(p?.traits ?? '').slice(0, 300) };
+  persona = { name: String(p?.name ?? '').slice(0, 20), traits: String(p?.traits ?? '').slice(0, PERSONA_TRAITS_MAX) };
   store.set('persona', JSON.stringify(persona));
   syncPersona();
 }
