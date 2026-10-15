@@ -30,7 +30,8 @@ html, body { margin: 0; height: 100%; overflow: hidden; }
 body {
   font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
   color: var(--text);
-  background: linear-gradient(var(--bg-top), var(--bg-bottom) 62%, var(--floor) 62%);
+  /* --vis: 패널 위로 보이는 높이 비율 — 바닥 띠도 캐릭터와 함께 올라간다 */
+  background: linear-gradient(var(--bg-top), var(--bg-bottom) calc(62% * var(--vis, 1)), var(--floor) calc(62% * var(--vis, 1)));
   user-select: none;
   -webkit-user-select: none;
 }
@@ -137,7 +138,7 @@ button:disabled { opacity: 0.5; }
 /* Document PiP 창 */
 body.in-pip { background: linear-gradient(var(--bg-top), var(--bg-bottom) 72%, var(--floor) 72%); }
 /* 미니 모드(작은 창): 바닥 띠를 낮춰 펫이 화면 중앙에 오도록 */
-html.compact body { background: linear-gradient(var(--bg-top), var(--bg-bottom) 70%, var(--floor) 70%); }
+html.compact body { background: linear-gradient(var(--bg-top), var(--bg-bottom) calc(70% * var(--vis, 1)), var(--floor) calc(70% * var(--vis, 1))); }
 html.compact #panel { width: calc(100% - 16px); bottom: max(8px, env(safe-area-inset-bottom)); padding: 8px; gap: 6px; }
 html.compact #panel button { padding: 6px 8px; font-size: 12px; }
 html.compact #skin-info { display: none; }
@@ -153,7 +154,17 @@ html.compact .zoom-hint { display: none; }
 .tabs button.on { background: var(--accent); color: #10201e; font-weight: 700; }
 #panel section { display: flex; flex-direction: column; gap: 10px; }
 #panel section[hidden] { display: none; }
-#panel { max-height: min(70vh, 520px); overflow-y: auto; }
+#panel { max-height: min(70vh, 520px); overflow: hidden; }
+/* 탭 내용만 스크롤 — 손잡이와 탭 줄은 항상 보인다 */
+#panel section { overflow-y: auto; min-height: 0; flex: 1 1 auto; overscroll-behavior: contain; }
+.tabs, #panel-handle { flex: 0 0 auto; }
+#panel-handle { position: relative; height: 18px; margin: -8px -12px -6px; cursor: ns-resize; touch-action: none; }
+#panel-handle::before {
+  content: ''; position: absolute; left: 50%; top: 6px; width: 44px; height: 5px; margin-left: -22px;
+  border-radius: 3px; background: var(--muted); opacity: 0.6;
+}
+html.compact #panel-handle { margin: -4px -8px -2px; }
+html.desktop #panel-handle { display: none; }
 .label { min-width: 34px; }
 
 /* 색 견본 */
@@ -249,3 +260,20 @@ html.desktop.desktop-panel .desk-only { display: block; }
 html.desktop body { background: transparent; }
 html.desktop #panel, html.desktop #btn-menu { display: none; }
 html.desktop #toast { top: 6px; font-size: 11px; }
+
+/* 🎵 유튜브 미니 플레이어 (약관상 최소 200×200 으로 항상 보이게) */
+#yt-card {
+  position: fixed; left: 12px; top: 64px; z-index: 3; width: 220px;
+  background: var(--panel); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border-radius: 12px; padding: 6px; display: flex; flex-direction: column; gap: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+#yt-card[hidden] { display: none; }
+.yt-bar { display: flex; align-items: center; gap: 4px; cursor: grab; touch-action: none; }
+.yt-grip { font-size: 12px; color: var(--muted); padding: 0 2px; }
+.yt-bar button { padding: 4px 8px; font-size: 13px; }
+#yt-vol-card { flex: 1; min-width: 0; }
+#yt-slot { width: 208px; height: 208px; border-radius: 8px; overflow: hidden; background: #000; }
+#yt-slot iframe { width: 100%; height: 100%; border: 0; display: block; }
+.yt-vol { accent-color: var(--accent); }
+#yt-vol { flex: 1; }

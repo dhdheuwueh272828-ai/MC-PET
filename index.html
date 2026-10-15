@@ -25,11 +25,14 @@
 
     <!-- 조작 패널 (Windows 데스크톱 펫은 우클릭 메뉴 → "꾸미기·프리셋 창"에서 열림) -->
     <div id="panel">
+      <!-- 위아래로 끌어서 패널 높이 조절 (두 번 누르면 원래 크기) -->
+      <div id="panel-handle" title="끌어서 높이 조절 · 두 번 누르면 원래대로"></div>
       <div class="tabs" id="tabs">
         <button data-tab="char" class="on">🧍 캐릭터</button>
         <button data-tab="deco">🎨 꾸미기</button>
         <button data-tab="preset">💾 프리셋</button>
         <button data-tab="ai">🤖 AI</button>
+        <button data-tab="music">🎵 음악</button>
         <button id="btn-panel-close" class="desk-only" aria-label="닫기">✕</button>
       </div>
 
@@ -124,6 +127,33 @@
         <div id="motion-list"></div>
         <p class="hint">API 키는 이 기기에만 저장되고 Google·Anthropic 서버로만 전송돼요.</p>
       </section>
+
+      <section data-tab="music" hidden>
+        <div class="row">
+          <button id="btn-yt-link">🔗 유튜브 링크</button>
+          <span id="yt-link-info" class="persona-summary"></span>
+        </div>
+        <div class="row">
+          <button id="btn-yt-play" class="primary">▶ 재생</button>
+          <button id="btn-yt-stop">⏹ 끄기</button>
+        </div>
+        <div class="row">
+          <span class="label">🔊 볼륨</span>
+          <input type="range" id="yt-vol" class="yt-vol" min="0" max="100" step="1" />
+        </div>
+        <p class="hint">영상·재생목록·쇼츠·유튜브 뮤직 링크를 넣으면 작은 플레이어로 반복 재생돼요. 아이패드는 처음 한 번 플레이어 화면을 직접 눌러야 소리가 나요. 음악이 나오는 동안 🎧 헤드폰을 쓰고 고개를 까딱여요.</p>
+      </section>
+    </div>
+
+    <!-- 🎵 유튜브 미니 플레이어 (윗줄을 끌어서 옮기기) -->
+    <div id="yt-card" hidden>
+      <div class="yt-bar" id="yt-bar">
+        <span class="yt-grip">⠿ 🎵</span>
+        <input type="range" id="yt-vol-card" class="yt-vol" min="0" max="100" step="1" aria-label="볼륨" />
+        <button id="yt-toggle" aria-label="재생/일시정지">⏸</button>
+        <button id="yt-close" aria-label="음악 끄기">✕</button>
+      </div>
+      <div id="yt-slot"></div>
     </div>
 
     <!-- 팝업 입력 창 (API 키 입력, Windows 의 글 입력) -->

@@ -5,6 +5,7 @@ import { buildWorkspace, buildProps, DESK_COLORS, GEAR_COLORS } from './scene.js
 import { THEMES, buildTheme, disposeTheme } from './themes.js';
 import { PetController, STATES, sanitizeMotion } from './pet.js';
 import { createPip } from './pip.js';
+import { parseYouTube, createMusic } from './music.js';
 
 // Electron preload 가 노출하는 브리지 (Windows 데스크톱 펫 모드)
 const bridge = window.petBridge ?? null;
@@ -281,25 +282,41 @@ function setZoom(z, { save = true } = {}) {
   }
 }
 
+// 패널 위로 남는 화면 높이 — 캐릭터와 말풍선은 이 영역 안에 들어오게 한다 (모바일·웹)
+let visH = 1;
+function measureVisibleHeight() {
+  if (desktop || viewWin !== window || !panelOpen) return viewH;
+  const top = $('panel').getBoundingClientRect().top;
+  if (!top) return viewH; // 패널이 숨겨져 있음
+  return Math.max(120, Math.min(viewH, top - 4));
+}
+
 function updateCamera() {
-  const portrait = camera.aspect < 1;
-  const showPanel = desktop ? desktopPanel : panelOpen;
+  visH = measureVisibleHeight();
+  if (viewWin === window) document.body.style.setProperty('--vis', (visH / viewH).toFixed(4));
+  // 웹: 패널 위 영역을 하나의 화면처럼 맞춘 뒤, 아래(패널 뒤)로 이어서 그린다
+  const aspect = desktop ? camera.aspect : viewW / visH;
+  if (!desktop) camera.aspect = aspect;
+  const portrait = aspect < 1;
+  const showPanel = desktop && desktopPanel;
   let dist;
   if (desktop && !desktopPanel) dist = 108;
   // 세로 화면: 책상 전체(가로 약 55칸)가 들어오도록 화면 비율에 맞춰 거리를 늘린다
-  else if (portrait) dist = (showPanel ? 105 : 95) / camera.aspect;
+  else if (portrait) dist = (showPanel ? 105 : 95) / aspect;
   else dist = showPanel ? 120 : 112;
   const target = LOOK_AT.clone();
-  // 패널이 보이면 그만큼 시점을 내리고, 숨기면 말풍선 공간만 조금 남긴다
+  // 말풍선 공간을 조금 남기고, Windows 꾸미기 창에선 패널만큼 시점을 내린다
   if (showPanel) target.y -= portrait ? 9 : 6;
   else if (!desktop) target.y -= portrait ? 3 : 4;
-  if (showPanel && desktop) target.y -= 8;
+  if (showPanel) target.y -= 8;
   // 확대할수록 얼굴 쪽으로 다가간다 (패널 높이 보정은 유지)
   const k = (zoom - 1) / (ZOOM_MAX - 1);
   target.lerp(HEAD_FOCUS.clone().setY(HEAD_FOCUS.y + (target.y - LOOK_AT.y) * 0.4), k);
   dist /= Math.pow(zoom, 0.85);
   camera.position.copy(target).addScaledVector(CAM_DIR, dist);
   camera.lookAt(target);
+  if (!desktop && visH < viewH) camera.setViewOffset(viewW, visH, 0, 0, viewW, viewH);
+  else camera.clearViewOffset();
   camera.updateProjectionMatrix();
 }
 
@@ -308,6 +325,7 @@ function resize() {
   viewH = viewWin.innerHeight;
   renderer.setSize(viewW, viewH, false);
   camera.aspect = viewW / viewH;
+  clampPanelHeight();
   const nowCompact = isCompact();
   if (!desktop && nowCompact !== compact) {
     compact = nowCompact;
@@ -318,6 +336,56 @@ function resize() {
   }
 }
 window.addEventListener('resize', resize);
+
+// ── 패널 높이 조절: 위쪽 손잡이를 끌어서 (바텀시트처럼), 두 번 누르면 원래 크기 ──
+const panelEl = $('panel');
+const panelHandle = $('panel-handle');
+let panelH = Number(store.get('panelH', 0)) || null;
+const panelMinH = () => $('tabs').offsetTop + $('tabs').offsetHeight + 12; // 손잡이 + 탭 줄
+const panelMaxH = () => Math.round(window.innerHeight * 0.85);
+function applyPanelHeight() {
+  if (desktop || !panelH) {
+    panelEl.style.height = panelEl.style.maxHeight = '';
+    return;
+  }
+  // 패널이 숨겨져 있으면 최소 높이를 잴 수 없으니 그대로 둔다
+  const min = panelEl.offsetHeight ? panelMinH() : 0;
+  panelEl.style.height = `${Math.round(Math.min(panelMaxH(), Math.max(min, panelH)))}px`;
+  panelEl.style.maxHeight = 'none';
+}
+function clampPanelHeight() {
+  if (panelH) applyPanelHeight();
+}
+let panelDrag = null;
+panelHandle.addEventListener('pointerdown', (e) => {
+  panelDrag = { id: e.pointerId, y: e.clientY, h: panelEl.offsetHeight };
+  try {
+    panelHandle.setPointerCapture(e.pointerId); // 캔버스 쓰다듬기·핀치와 섞이지 않게
+  } catch {}
+  e.preventDefault();
+});
+panelHandle.addEventListener('pointermove', (e) => {
+  if (panelDrag?.id !== e.pointerId) return;
+  panelH = Math.min(panelMaxH(), Math.max(panelMinH(), panelDrag.h + panelDrag.y - e.clientY));
+  applyPanelHeight();
+  updateCamera();
+});
+const endPanelDrag = (e) => {
+  if (panelDrag?.id !== e.pointerId) return;
+  panelDrag = null;
+  if (panelH) store.set('panelH', String(Math.round(panelH)));
+};
+panelHandle.addEventListener('pointerup', endPanelDrag);
+panelHandle.addEventListener('pointercancel', endPanelDrag);
+panelHandle.addEventListener('dblclick', () => {
+  panelH = null;
+  store.set('panelH', null);
+  applyPanelHeight();
+  updateCamera();
+});
+// 탭을 바꾸거나 패널을 열고 닫아 높이가 바뀌면 카메라도 다시 맞춘다
+if (window.ResizeObserver) new ResizeObserver(() => updateCamera()).observe(panelEl);
+
 resize();
 
 const tmp = new THREE.Vector3();
@@ -617,7 +685,7 @@ function loadPresets() {
 function savePreset(name) {
   name = name.trim();
   if (!name) return toast('프리셋 이름을 입력해 주세요');
-  const preset = { name, skin: store.get('skin', null), arms: armsMode, deco: { ...deco }, persona: { ...persona }, at: Date.now() };
+  const preset = { name, skin: store.get('skin', null), arms: armsMode, deco: { ...deco }, persona: { ...persona }, music: { url: musicUrl(), vol: musicVol() }, at: Date.now() };
   const list = loadPresets().filter((p) => p.name !== name);
   list.unshift(preset);
   if (!store.set('presets', JSON.stringify(list))) return toast('저장 공간이 부족하거나 저장할 수 없는 환경이에요');
@@ -634,6 +702,7 @@ async function applyPreset(p) {
   setArms(p.arms || 'auto');
   applyDeco(p.deco || DEFAULT_DECO);
   if (p.persona) setPersona(p.persona);
+  if (p.music) applyMusicPreset(p.music);
   toast(`'${p.name}' 불러옴`);
 }
 
@@ -1246,9 +1315,113 @@ $('btn-new-motion').onclick = async () => {
   }
 };
 
+// ── 🎵 유튜브 배경음 ──
+// 🎧 음악 재생 중 머리에 씌우는 마크풍 헤드폰 (머리 기준 좌표: 머리 상자는 y 0~8, x·z ±4)
+const headphones = (() => {
+  const g = new THREE.Group();
+  const band = new THREE.MeshLambertMaterial({ color: 0x2b2b33 });
+  const cup = new THREE.MeshLambertMaterial({ color: 0xe8505b });
+  const box = (w, h, d, mat, x, y, z) => {
+    const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+    m.position.set(x, y, z);
+    m.castShadow = true;
+    g.add(m);
+  };
+  box(11, 1, 2, band, 0, 9, 0); // 머리띠
+  box(1, 4, 2, band, -5, 7, 0);
+  box(1, 4, 2, band, 5, 7, 0);
+  box(1.6, 3.6, 3.6, cup, -5.3, 4.2, 0); // 귀 덮개
+  box(1.6, 3.6, 3.6, cup, 5.3, 4.2, 0);
+  g.visible = false;
+  return g;
+})();
+
+const musicUrl = () => store.get('ytUrl', '');
+const musicVol = () => Math.min(100, Math.max(0, Number(store.get('ytVol', 60)) || 0));
+let musicPlaying = false;
+const music = createMusic({
+  card: $('yt-card'),
+  bar: $('yt-bar'),
+  slot: $('yt-slot'),
+  toast,
+  onChange: ({ playing }) => {
+    musicPlaying = playing;
+    syncMusic();
+  },
+  getPos: () => store.json('ytPos', null),
+  savePos: (p) => store.set('ytPos', JSON.stringify(p)),
+});
+music.setVolume(musicVol());
+
+function syncMusic() {
+  const url = musicUrl();
+  $('yt-link-info').textContent = url || '아직 링크가 없어요';
+  $('btn-yt-play').textContent = musicPlaying ? '⏸ 일시정지' : '▶ 재생';
+  $('yt-toggle').textContent = musicPlaying ? '⏸' : '▶';
+  $('btn-yt-stop').disabled = !music.active;
+  $('yt-vol').value = $('yt-vol-card').value = musicVol();
+  headphones.visible = musicPlaying;
+}
+
+function playMusic() {
+  const link = parseYouTube(musicUrl());
+  if (!link) return toast('먼저 🔗 유튜브 링크를 넣어 주세요');
+  music.play(link);
+}
+// 재생/일시정지 — 아이패드는 사용자가 누른 순간에 시작해야 해서 탭 안에서 바로 부른다
+function toggleMusic() {
+  if (musicPlaying) music.pause();
+  else playMusic();
+}
+
+async function setMusicLink() {
+  const text = await ask('유튜브 링크 (영상·재생목록·쇼츠·유튜브 뮤직)', musicUrl());
+  if (text == null) return;
+  if (!text.trim()) {
+    store.set('ytUrl', null);
+    music.stop();
+    return syncMusic();
+  }
+  if (!parseYouTube(text)) return toast('유튜브 링크가 아니에요 (youtube.com · youtu.be)');
+  store.set('ytUrl', text.trim());
+  syncMusic();
+  if (music.active) playMusic(); // 듣는 중이면 새 곡으로 바로 바꾸기
+  else toast('🎵 링크 저장! ▶ 재생을 눌러 주세요');
+}
+
+function setMusicVolume(v) {
+  store.set('ytVol', String(Math.round(v)));
+  music.setVolume(v);
+  syncMusic();
+}
+
+// 프리셋에 저장된 음악: 링크·볼륨만 바꾸고, 듣던 중이면 새 곡으로 이어서
+function applyMusicPreset(m) {
+  const url = typeof m.url === 'string' && parseYouTube(m.url) ? m.url : '';
+  store.set('ytUrl', url || null);
+  if (Number.isFinite(m.vol)) setMusicVolume(m.vol);
+  if (!url) music.stop();
+  else if (music.active) playMusic();
+  syncMusic();
+}
+
+$('btn-yt-link').onclick = () => setMusicLink();
+$('btn-yt-play').onclick = toggleMusic;
+$('yt-toggle').onclick = toggleMusic;
+$('btn-yt-stop').onclick = $('yt-close').onclick = () => music.stop();
+for (const id of ['yt-vol', 'yt-vol-card']) $(id).oninput = (e) => setMusicVolume(Number(e.target.value));
+// Windows 펫: 투명 픽셀 위라 클릭 통과 중이어도 플레이어 카드 위에선 누를 수 있게
+$('yt-card').addEventListener('pointermove', () => {
+  if (desktop && ignoring) {
+    ignoring = false;
+    bridge.setIgnoreMouse(false);
+  }
+});
+
 pet.customMotions = loadMotions();
 renderMotions();
 syncCustomFreq();
+syncMusic();
 syncAI();
 
 // ── 시작 ──
@@ -1280,7 +1453,12 @@ function frame() {
     spawnGlyph(toScreen(workspace.setup === 'desktop' ? monitorPoint : laptopPoint));
   }
 
+  // 음악이 나오면 헤드폰을 쓰고 리듬에 맞춰 고개를 살짝 까딱 (렌더할 때만 더했다가 되돌린다)
+  if (headphones.parent !== model.head) model.head.add(headphones); // 스킨을 바꾸면 머리가 새로 만들어진다
+  const bob = musicPlaying && pet.state !== 'sleep' ? Math.max(0, Math.sin(clock.elapsedTime * Math.PI * 4)) * 0.08 : 0;
+  model.head.rotation.x += bob;
   renderer.render(scene, camera);
+  model.head.rotation.x -= bob;
   pip.onFrame();
 
   if (!bubble.hidden) {
@@ -1292,7 +1470,7 @@ function frame() {
     const w = bubble.offsetWidth;
     const h = bubble.offsetHeight;
     const x = Math.min(Math.max(p.x, w / 2 + m), viewW - w / 2 - m);
-    const y = Math.min(Math.max(p.y, h + m + 4), viewH - m);
+    const y = Math.min(Math.max(p.y, h + m + 4), visH - m);
     bubble.classList.toggle('clamped', Math.abs(x - p.x) > 1 || Math.abs(y - p.y) > 1);
     bubble.style.left = `${x}px`;
     bubble.style.top = `${y}px`;
