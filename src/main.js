@@ -3,6 +3,7 @@ import { loadImage, normalizeSkin, readFileAsDataURL, createDefaultSkin } from '
 import { PlayerModel } from './model.js';
 import { buildWorkspace } from './scene.js';
 import { PetController, STATES } from './pet.js';
+import { createPip } from './pip.js';
 
 // Electron preload 가 노출하는 브리지 (Windows 데스크톱 펫 모드)
 const bridge = window.petBridge ?? null;
@@ -69,12 +70,15 @@ const model = new PlayerModel(createDefaultSkin());
 scene.add(model.root);
 
 let currentSkin = null;
+let pip = null;
 let armsMode = store.get('arms', 'auto');
 
 const pet = new PetController(model, workspace, { onSay: say });
 
 function applySkin(skin) {
   currentSkin = skin;
+  pip?.invalidate();
+  syncPipButton();
   const slim = armsMode === 'auto' ? skin.slim : armsMode === 'slim';
   // 컵을 들고 있는 도중이면 팔을 다시 만들기 전에 책상에 내려놓는다
   pet.attachMug(false);
@@ -180,7 +184,9 @@ let viewW = 1;
 let viewH = 1;
 let compact = null;
 let panelOpen = true;
-const isCompact = () => window.innerWidth < 520 || window.innerHeight < 560;
+// 크기·렌더 루프의 기준 창 (PiP 창으로 옮기면 바뀐다)
+let viewWin = window;
+const isCompact = () => viewWin.innerWidth < 520 || viewWin.innerHeight < 560;
 
 function setPanelOpen(open) {
   panelOpen = open;
@@ -206,8 +212,8 @@ function updateCamera() {
 }
 
 function resize() {
-  viewW = window.innerWidth;
-  viewH = window.innerHeight;
+  viewW = viewWin.innerWidth;
+  viewH = viewWin.innerHeight;
   renderer.setSize(viewW, viewH, false);
   camera.aspect = viewW / viewH;
   const nowCompact = isCompact();
@@ -308,6 +314,27 @@ $('btn-name').onclick = () => {
 };
 $('btn-reset').onclick = resetSkin;
 $('btn-menu').onclick = () => setPanelOpen(!panelOpen);
+$('btn-pip').onclick = async () => {
+  const btn = $('btn-pip');
+  if (pip.isRecording()) return;
+  btn.disabled = true;
+  try {
+    const r = await pip.toggle();
+    if (r === 'ready') toast('준비 완료! 📺 버튼을 한 번 더 누르면 PiP 로 떠요');
+  } catch (e) {
+    toast(e?.message || 'PiP 를 열지 못했어요.');
+  } finally {
+    btn.disabled = false;
+    syncPipButton();
+  }
+};
+
+function syncPipButton() {
+  const btn = $('btn-pip');
+  if (!pip) return;
+  btn.hidden = desktop || !pip.support.any;
+  btn.textContent = !pip.support.doc && pip.hasClip() ? '📺 PiP 시작' : '📺 PiP';
+}
 for (const b of $('arms').querySelectorAll('button')) b.onclick = () => setArms(b.dataset.v);
 
 const modes = $('modes');
@@ -346,7 +373,7 @@ const headWorld = new THREE.Vector3();
 const laptopPoint = new THREE.Vector3(0, 22, 13);
 let glyphAcc = 0;
 
-renderer.setAnimationLoop(() => {
+function frame() {
   const dt = Math.min(clock.getDelta(), 0.1);
   const typing = pet.update(dt);
 
@@ -360,6 +387,7 @@ renderer.setAnimationLoop(() => {
   }
 
   renderer.render(scene, camera);
+  pip.onFrame();
 
   if (!bubble.hidden) {
     model.head.getWorldPosition(headWorld);
@@ -368,4 +396,62 @@ renderer.setAnimationLoop(() => {
     bubble.style.left = `${p.x}px`;
     bubble.style.top = `${p.y}px`;
   }
+}
+
+// requestAnimationFrame 루프: PiP 창으로 옮기면 그 창의 rAF 를 써야 메인 탭이 가려져도 계속 움직인다
+let loopWin = null;
+let rafId = 0;
+function startLoop(win) {
+  if (loopWin) loopWin.cancelAnimationFrame(rafId);
+  loopWin = win;
+  const step = () => {
+    frame();
+    rafId = win.requestAnimationFrame(step);
+  };
+  rafId = win.requestAnimationFrame(step);
+}
+
+// ── PiP ──
+const cropCorners = [];
+for (const x of [-18, 18]) for (const y of [0, 36]) for (const z of [-6, 22]) cropCorners.push(new THREE.Vector3(x, y, z));
+pip = createPip({
+  stage: $('stage'),
+  glCanvas: canvas,
+  getCrop() {
+    // 책상+캐릭터가 보이는 영역을 4:3 으로 잘라낸다 (캔버스 픽셀 좌표)
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const v of cropCorners) {
+      const p = toScreen(v);
+      x0 = Math.min(x0, p.x); x1 = Math.max(x1, p.x);
+      y0 = Math.min(y0, p.y); y1 = Math.max(y1, p.y);
+    }
+    let w = x1 - x0;
+    let h = y1 - y0;
+    if (w / h > 4 / 3) h = (w * 3) / 4;
+    else w = (h * 4) / 3;
+    const dpr = renderer.getPixelRatio();
+    return { x: ((x0 + x1) / 2 - w / 2) * dpr, y: ((y0 + y1) / 2 - h / 2) * dpr, w: w * dpr, h: h * dpr };
+  },
+  getBubble: () => (bubble.hidden ? null : { text: bubble.textContent, x: parseFloat(bubble.style.left), y: parseFloat(bubble.style.top) }),
+  setViewWindow(win) {
+    viewWin = win;
+    if (win !== window) win.addEventListener('resize', resize);
+    compact = null;
+    resize();
+    startLoop(win);
+  },
+  toast,
+  beginClip() {
+    const prev = store.get('mode', 'auto');
+    pet.setState('work', { manual: true });
+    return () => setMode(prev);
+  },
 });
+syncPipButton();
+startLoop(window);
+
+// ── 웹 앱(PWA): 오프라인 캐시 ──
+const nativeShell = desktop || window.Capacitor?.isNativePlatform?.();
+if (!nativeShell && 'serviceWorker' in navigator && location.protocol === 'https:') {
+  navigator.serviceWorker.register('./sw.js').catch(() => {});
+}

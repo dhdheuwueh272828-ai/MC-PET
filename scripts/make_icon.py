@@ -27,4 +27,9 @@ for y, row in enumerate(face):
 root = Path(__file__).resolve().parent.parent
 img.save(root / 'build' / 'icon.png')
 img.resize((192, 192), Image.NEAREST).save(root / 'public' / 'icon.png')
+img.save(root / 'public' / 'icon-512.png')
+# iOS 홈 화면 아이콘은 투명 배경 대신 꽉 찬 사각형이어야 한다 (모서리는 iOS 가 둥글게 깎음)
+full = Image.new('RGBA', (512, 512), '#3b7dd8')
+full.alpha_composite(img)
+full.convert('RGB').resize((180, 180), Image.LANCZOS).save(root / 'public' / 'apple-touch-icon.png')
 print('icon written')
