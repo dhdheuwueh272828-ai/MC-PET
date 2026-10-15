@@ -77,16 +77,14 @@
       </section>
 
       <section data-tab="ai" hidden>
-        <p class="hint">
-          Claude 가 실시간으로 대사를 만들고, 말을 걸면 대답하고, 설명한 대로 새 동작을 만들어요.
-          본인 Claude API 키가 필요하고 쓴 만큼 요금이 나가요. 키는 이 기기에만 저장돼요.
-        </p>
-        <div class="row">
+        <div class="row"><span class="label">AI</span><div class="seg" id="ai-provider"></div></div>
+        <p class="hint" id="ai-mode-hint"></p>
+        <div class="row" id="ai-key-row">
           <span id="ai-key-state" class="label"></span>
           <button id="btn-ai-key">🔑 API 키 입력</button>
           <button id="btn-ai-key-del" hidden>삭제</button>
         </div>
-        <div class="row"><span class="label">모델</span><div class="seg" id="ai-model"></div></div>
+        <div class="row" id="ai-model-row"><span class="label">모델</span><div class="seg" id="ai-model"></div></div>
         <div class="row">
           <span class="label">AI 대사</span>
           <div class="seg" id="ai-lines">
@@ -100,15 +98,19 @@
           <button id="btn-new-motion" class="primary">✨ 새 동작 만들기</button>
         </div>
         <div id="motion-list"></div>
+        <p class="hint">API 키는 이 기기에만 저장되고 Google·Anthropic 서버로만 전송돼요.</p>
       </section>
     </div>
 
-    <!-- Windows(Electron)는 prompt() 를 지원하지 않아 직접 만든 입력 창을 쓴다 -->
+    <!-- 팝업 입력 창 (API 키 입력, Windows 의 글 입력) -->
     <div id="modal" hidden>
       <form id="modal-form">
         <label id="modal-label" for="modal-input"></label>
-        <input id="modal-input" type="text" autocomplete="off" />
+        <p id="modal-hint" class="hint"></p>
+        <a id="modal-link" target="_blank" rel="noopener" hidden>🔗 키 발급 페이지 열기</a>
+        <input id="modal-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
         <div class="row">
+          <button type="button" id="modal-paste" hidden>📋 붙여넣기</button>
           <button type="button" id="modal-cancel">취소</button>
           <button type="submit" class="primary">확인</button>
         </div>

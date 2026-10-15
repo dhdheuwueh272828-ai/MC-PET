@@ -1,14 +1,13 @@
-// Claude 연동: 실시간 대사, 말 걸기, 새 동작 만들기
-// 사용자가 직접 넣은 API 키로 브라우저(앱)에서 바로 Claude API 를 호출한다.
+// AI 연동: 실시간 대사, 말 걸기, 새 동작 만들기
+// Gemini(무료 등급) 또는 Claude 를, 사용자가 직접 넣은 API 키로 브라우저(앱)에서 바로 호출한다.
 // 키는 이 기기에만 저장되고, 웹사이트 코드나 GitHub 에는 들어가지 않는다.
 import Anthropic from '@anthropic-ai/sdk';
 import { betaZodOutputFormat } from '@anthropic-ai/sdk/helpers/beta/zod';
+import { GoogleGenAI, ApiError as GeminiApiError } from '@google/genai';
 import { z } from 'zod';
 
-export const AI_MODELS = [
-  ['claude-opus-5-5', 'Opus 5.5'],
-  ['claude-haiku-5-5', 'Haiku 5.5'],
-];
+// Gemini: 항상 최신 Flash 를 가리키는 별칭. 한도/없음이면 Flash-Lite 로 한 번 더 시도
+const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
 
 const PERSONA = `너는 마인크래프트 스킨을 입은 작은 데스크톱 펫이야. 책상 의자에 앉아 컴퓨터로 일하는 중이고, 화면 밖의 주인(사용자)과 아주 친한 친구 사이야.
 - 말투: 다정하고 밝은 반말. 귀엽고 짧게.
@@ -50,24 +49,68 @@ const MotionSchema = z.object({
 
 const LineSchema = z.object({ line: z.string().describe('말풍선 대사 (25자 이내)') });
 
-export class AIError extends Error {}
+export class AIError extends Error {
+  constructor(message, { quota = false } = {}) {
+    super(message);
+    this.quota = quota; // 무료 한도 초과 → 잠시 내장 AI 로
+  }
+}
 
-export function createAI({ getKey, getModel }) {
-  let client = null;
-  let clientKey = null;
+/**
+ * @param getProvider () => 'gemini' | 'claude'
+ * @param getKey (provider) => string
+ * @param getModel () => Claude 모델 ID
+ */
+export function createAI({ getProvider, getKey, getModel }) {
+  const clients = {};
 
-  function getClient() {
-    const key = getKey();
-    if (!key) throw new AIError('Claude API 키를 먼저 입력해 주세요 (🤖 AI 탭)');
-    if (key !== clientKey) {
-      // 브라우저에서 직접 호출: 키는 사용자 본인 것이고 이 기기에만 저장된다
-      client = new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 1 });
-      clientKey = key;
-    }
+  function getClient(provider) {
+    const key = getKey(provider);
+    if (!key) throw new AIError(`${provider === 'gemini' ? 'Gemini' : 'Claude'} API 키를 먼저 입력해 주세요 (🤖 AI 탭)`);
+    const cached = clients[provider];
+    if (cached?.key === key) return cached.client;
+    // 브라우저에서 직접 호출: 키는 사용자 본인 것이고 이 기기에만 저장된다
+    const client =
+      provider === 'gemini'
+        ? new GoogleGenAI({ apiKey: key })
+        : new Anthropic({ apiKey: key, dangerouslyAllowBrowser: true, maxRetries: 1 });
+    clients[provider] = { key, client };
     return client;
   }
 
+  async function askGemini(system, user, schema) {
+    const ai = getClient('gemini');
+    const { $schema, ...jsonSchema } = z.toJSONSchema(schema);
+    let lastErr;
+    for (const model of GEMINI_MODELS) {
+      try {
+        const res = await ai.models.generateContent({
+          model,
+          contents: user,
+          config: { systemInstruction: system, responseMimeType: 'application/json', responseJsonSchema: jsonSchema },
+        });
+        const parsed = schema.safeParse(JSON.parse(res.text ?? ''));
+        if (!parsed.success) throw new AIError('Gemini 응답을 읽지 못했어요');
+        return parsed.data;
+      } catch (e) {
+        lastErr = e;
+        // 모델이 없거나(404) 한도 초과(429)면 다음 모델로
+        if (e instanceof GeminiApiError && (e.status === 404 || e.status === 429)) continue;
+        break;
+      }
+    }
+    const e = lastErr;
+    if (e instanceof GeminiApiError) {
+      if (e.status === 429) throw new AIError('Gemini 무료 한도에 걸렸어요. 잠시 내장 대사로 할게요', { quota: true });
+      if (e.status === 400 || e.status === 401 || e.status === 403) throw new AIError('Gemini API 키를 확인해 주세요');
+      throw new AIError(`Gemini 오류 (${e.status})`);
+    }
+    if (e instanceof AIError) throw e;
+    throw new AIError('Gemini 에 연결하지 못했어요 (인터넷 확인)');
+  }
+
   async function ask(system, user, schema, effort) {
+    if (getProvider() === 'gemini') return askGemini(system, user, schema);
     const model = getModel();
     const params = {
       model,
@@ -83,11 +126,11 @@ export function createAI({ getKey, getModel }) {
     }
     let res;
     try {
-      res = await getClient().beta.messages.parse(params);
+      res = await getClient('claude').beta.messages.parse(params);
     } catch (e) {
       if (e instanceof Anthropic.AuthenticationError) throw new AIError('API 키가 올바르지 않아요');
       if (e instanceof Anthropic.PermissionDeniedError) throw new AIError('이 키로는 해당 모델을 쓸 수 없어요');
-      if (e instanceof Anthropic.RateLimitError) throw new AIError('요청이 너무 많아요. 잠시 후 다시 해 주세요');
+      if (e instanceof Anthropic.RateLimitError) throw new AIError('요청이 너무 많아요. 잠시 후 다시 해 주세요', { quota: true });
       if (e instanceof Anthropic.APIConnectionError) throw new AIError('Claude 에 연결하지 못했어요 (인터넷 확인)');
       if (e instanceof Anthropic.APIError) throw new AIError(`Claude 오류 (${e.status ?? '?'})`);
       throw e;

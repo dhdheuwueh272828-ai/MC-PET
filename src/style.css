@@ -8,6 +8,7 @@
   --accent: #5fe0d2;
   --chip: rgba(255, 255, 255, 0.08);
   --bubble-bg: #ffffff;
+  --modal-bg: #23263a;
   --bubble-text: #222;
 }
 @media (prefers-color-scheme: light) {
@@ -20,6 +21,7 @@
     --muted: #64657a;
     --accent: #0f9e8f;
     --chip: rgba(0, 0, 0, 0.06);
+    --modal-bg: #ffffff;
   }
 }
 
@@ -200,6 +202,10 @@ html:not(.desktop) #btn-preset-save { flex: 1; }
   border: 0; border-radius: 10px; padding: 9px 12px;
 }
 #modal .row { justify-content: flex-end; }
+#modal-paste { margin-right: auto; }
+#modal-form { background: var(--modal-bg); }
+#modal-link { color: var(--accent); font-size: 13px; font-weight: 700; }
+#ai-key-row[hidden], #ai-model-row[hidden] { display: none; }
 
 /* 배경이 있을 땐 CSS 배경 대신 3D 방이 보인다 */
 html.has-theme body { background: #222; }
