@@ -1041,13 +1041,24 @@ function renderMotions() {
     play.textContent = '▶';
     play.title = '해 보기';
     play.onclick = () => pet.playCustom(m);
+    // ⭐ 자동 행동에 포함할지 (auto 필드가 없으면 켜짐)
+    const star = document.createElement('button');
+    star.textContent = m.auto === false ? '☆' : '⭐';
+    star.title = m.auto === false ? '자동으로 안 나옴 (눌러서 켜기)' : '자동으로 나옴 (눌러서 끄기)';
+    star.onclick = () => {
+      const list = loadMotions();
+      if (!list[i]) return;
+      if (list[i].auto === false) delete list[i].auto;
+      else list[i].auto = false;
+      saveMotions(list);
+    };
     const del = document.createElement('button');
     del.textContent = '🗑';
     del.title = '삭제';
     del.onclick = () => {
       if (confirm(`'${m.name}' 동작을 지울까요?`)) saveMotions(loadMotions().filter((_, j) => j !== i));
     };
-    row.append(meta, play, del);
+    row.append(meta, star, play, del);
     box.appendChild(row);
   });
 }
@@ -1095,6 +1106,19 @@ for (const b of $('ai-lines').children)
   b.onclick = () => {
     store.set('aiLines', b.dataset.v);
     syncAI();
+  };
+
+// 직접 만든 동작이 자동 행동에 나오는 빈도 (기본: 자주)
+const CUSTOM_FREQ = { off: 0, rare: 0.2, often: 0.5 };
+function syncCustomFreq() {
+  const v = store.get('customFreq', 'often');
+  pet.customFreq = CUSTOM_FREQ[v] ?? CUSTOM_FREQ.often;
+  for (const b of $('custom-freq').children) b.classList.toggle('on', b.dataset.v === v);
+}
+for (const b of $('custom-freq').children)
+  b.onclick = () => {
+    store.set('customFreq', b.dataset.v);
+    syncCustomFreq();
   };
 
 $('btn-ai-key').onclick = async () => {
@@ -1224,6 +1248,7 @@ $('btn-new-motion').onclick = async () => {
 
 pet.customMotions = loadMotions();
 renderMotions();
+syncCustomFreq();
 syncAI();
 
 // ── 시작 ──
