@@ -175,21 +175,49 @@ function spawnGlyph(screen) {
 }
 
 // ── 화면 크기 ──
+// 아이패드 분할 화면 / 창 모드처럼 창이 작으면 "미니 모드": 패널을 숨기고 펫만 크게 보여 준다
 let viewW = 1;
 let viewH = 1;
+let compact = null;
+let panelOpen = true;
+const isCompact = () => window.innerWidth < 520 || window.innerHeight < 560;
+
+function setPanelOpen(open) {
+  panelOpen = open;
+  document.body.classList.toggle('panel-hidden', !open);
+  updateCamera();
+}
+
+function updateCamera() {
+  const portrait = camera.aspect < 1;
+  const showPanel = !desktop && panelOpen;
+  let dist;
+  if (desktop) dist = 108;
+  // 세로 화면: 책상 전체(가로 약 55칸)가 들어오도록 화면 비율에 맞춰 거리를 늘린다
+  else if (portrait) dist = (showPanel ? 105 : 95) / camera.aspect;
+  else dist = showPanel ? 120 : 112;
+  const target = LOOK_AT.clone();
+  // 패널이 보이면 그만큼 시점을 내리고, 숨기면 말풍선 공간만 조금 남긴다
+  if (showPanel) target.y -= portrait ? 9 : 6;
+  else if (!desktop) target.y -= portrait ? 3 : 4;
+  camera.position.copy(target).addScaledVector(CAM_DIR, dist);
+  camera.lookAt(target);
+  camera.updateProjectionMatrix();
+}
+
 function resize() {
   viewW = window.innerWidth;
   viewH = window.innerHeight;
   renderer.setSize(viewW, viewH, false);
   camera.aspect = viewW / viewH;
-  // 세로 화면(모바일)에서는 더 멀리서 비추고, 하단 패널 공간만큼 시점을 내린다
-  const portrait = camera.aspect < 1;
-  const dist = desktop ? 108 : portrait ? 76 + 50 / camera.aspect : 120;
-  const target = LOOK_AT.clone();
-  if (!desktop) target.y -= portrait ? 9 : 6;
-  camera.position.copy(target).addScaledVector(CAM_DIR, dist);
-  camera.lookAt(target);
-  camera.updateProjectionMatrix();
+  const nowCompact = isCompact();
+  if (!desktop && nowCompact !== compact) {
+    compact = nowCompact;
+    document.documentElement.classList.toggle('compact', compact);
+    setPanelOpen(!compact);
+  } else {
+    updateCamera();
+  }
 }
 window.addEventListener('resize', resize);
 resize();
@@ -202,9 +230,19 @@ function toScreen(v) {
 
 // ── 입력: 탭/클릭 = 인사, 드래그 = (데스크톱) 창 이동, 우클릭 = 메뉴 ──
 let press = null;
+let longPressTimer = 0;
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
-  press = { x: e.screenX, y: e.screenY, moved: false };
+  press = { x: e.screenX, y: e.screenY, moved: false, long: false };
+  // 모바일: 길게 누르면 메뉴(패널) 열기/닫기
+  if (!desktop) {
+    clearTimeout(longPressTimer);
+    longPressTimer = setTimeout(() => {
+      if (!press || press.moved) return;
+      press.long = true;
+      setPanelOpen(!panelOpen);
+    }, 550);
+  }
   canvas.setPointerCapture(e.pointerId);
   if (desktop) bridge.dragStart();
 });
@@ -217,8 +255,13 @@ canvas.addEventListener('pointermove', (e) => {
 });
 canvas.addEventListener('pointerup', () => {
   if (!press) return;
+  clearTimeout(longPressTimer);
   if (desktop) bridge.dragEnd();
-  if (!press.moved) pet.poke();
+  if (!press.moved && !press.long) pet.poke();
+  press = null;
+});
+canvas.addEventListener('pointercancel', () => {
+  clearTimeout(longPressTimer);
   press = null;
 });
 canvas.addEventListener('contextmenu', (e) => {
@@ -264,6 +307,7 @@ $('btn-name').onclick = () => {
   if (name) loadSkinByName(name);
 };
 $('btn-reset').onclick = resetSkin;
+$('btn-menu').onclick = () => setPanelOpen(!panelOpen);
 for (const b of $('arms').querySelectorAll('button')) b.onclick = () => setArms(b.dataset.v);
 
 const modes = $('modes');

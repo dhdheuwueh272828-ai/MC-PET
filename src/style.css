@@ -109,6 +109,27 @@ button.primary { background: var(--accent); color: #10201e; font-weight: 700; fl
 .seg button.on, .chips button.on { background: var(--accent); color: #10201e; font-weight: 700; }
 .chips button { font-size: 13px; padding: 7px 10px; }
 
+#btn-menu {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 18px;
+  z-index: 2;
+}
+body.panel-hidden #panel { display: none; }
+/* 미니 모드(작은 창): 바닥 띠를 낮춰 펫이 화면 중앙에 오도록 */
+html.compact body { background: linear-gradient(var(--bg-top), var(--bg-bottom) 70%, var(--floor) 70%); }
+html.compact #panel { width: calc(100% - 16px); bottom: max(8px, env(safe-area-inset-bottom)); padding: 8px; gap: 6px; }
+html.compact #panel button { padding: 6px 8px; font-size: 12px; }
+html.compact #skin-info { display: none; }
+
 #toast {
   position: fixed;
   top: max(16px, env(safe-area-inset-top));
@@ -124,5 +145,26 @@ button.primary { background: var(--accent); color: #10201e; font-weight: 700; fl
 
 /* Windows 데스크톱 펫: 투명 창, 패널 숨김 */
 html.desktop body { background: transparent; }
-html.desktop #panel { display: none; }
-html.desktop #toast { top: 6px; font-size: 11px; }
+html.desktop #panel, html.desktop #btn-menu { display: none; }
+html.desktop #btn-menu {
+  position: fixed;
+  top: max(12px, env(safe-area-inset-top));
+  right: max(12px, env(safe-area-inset-right));
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  font-size: 18px;
+  z-index: 2;
+}
+body.panel-hidden #panel { display: none; }
+/* 미니 모드(작은 창): 바닥 띠를 낮춰 펫이 화면 중앙에 오도록 */
+html.compact body { background: linear-gradient(var(--bg-top), var(--bg-bottom) 70%, var(--floor) 70%); }
+html.compact #panel { width: calc(100% - 16px); bottom: max(8px, env(safe-area-inset-bottom)); padding: 8px; gap: 6px; }
+html.compact #panel button { padding: 6px 8px; font-size: 12px; }
+html.compact #skin-info { display: none; }
+
+#toast { top: 6px; font-size: 11px; }
