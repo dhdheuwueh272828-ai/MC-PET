@@ -77,6 +77,11 @@
       </section>
 
       <section data-tab="ai" hidden>
+        <div class="row">
+          <span class="label">🎭 성격</span>
+          <span id="persona-summary" class="persona-summary"></span>
+          <button id="btn-persona">✏️ 설정</button>
+        </div>
         <div class="row"><span class="label">AI</span><div class="seg" id="ai-provider"></div></div>
         <p class="hint" id="ai-mode-hint"></p>
         <div class="row" id="ai-key-row">
@@ -109,6 +114,8 @@
         <p id="modal-hint" class="hint"></p>
         <a id="modal-link" target="_blank" rel="noopener" hidden>🔗 키 발급 페이지 열기</a>
         <input id="modal-input" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" />
+        <label id="modal-label2" for="modal-textarea" hidden></label>
+        <textarea id="modal-textarea" rows="4" hidden></textarea>
         <div class="row">
           <button type="button" id="modal-paste" hidden>📋 붙여넣기</button>
           <button type="button" id="modal-cancel">취소</button>

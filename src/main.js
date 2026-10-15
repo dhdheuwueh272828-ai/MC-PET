@@ -536,7 +536,7 @@ function loadPresets() {
 function savePreset(name) {
   name = name.trim();
   if (!name) return toast('프리셋 이름을 입력해 주세요');
-  const preset = { name, skin: store.get('skin', null), arms: armsMode, deco: { ...deco }, at: Date.now() };
+  const preset = { name, skin: store.get('skin', null), arms: armsMode, deco: { ...deco }, persona: { ...persona }, at: Date.now() };
   const list = loadPresets().filter((p) => p.name !== name);
   list.unshift(preset);
   if (!store.set('presets', JSON.stringify(list))) return toast('저장 공간이 부족하거나 저장할 수 없는 환경이에요');
@@ -552,6 +552,7 @@ async function applyPreset(p) {
   }
   setArms(p.arms || 'auto');
   applyDeco(p.deco || DEFAULT_DECO);
+  if (p.persona) setPersona(p.persona);
   toast(`'${p.name}' 불러옴`);
 }
 
@@ -584,7 +585,7 @@ function renderPresets() {
     const desc = document.createElement('div');
     desc.className = 'desc';
     const d = { ...DEFAULT_DECO, ...p.deco };
-    desc.textContent = `${THEME_LABEL[d.theme] ?? '기본'} · ${d.setup === 'desktop' ? '키보드+마우스' : '노트북'}`;
+    desc.textContent = `${p.persona?.name ? `🎭 ${p.persona.name} · ` : ''}${THEME_LABEL[d.theme] ?? '기본'} · ${d.setup === 'desktop' ? '키보드+마우스' : '노트북'}`;
     meta.append(name, desc);
     const load = document.createElement('button');
     load.textContent = '불러오기';
@@ -672,7 +673,7 @@ async function getAI() {
   if (!ai) {
     // SDK 는 AI 를 쓸 때만 불러온다 (처음 로딩을 가볍게)
     const { createAI } = await import('./ai.js');
-    ai = createAI({ getProvider: aiProvider, getKey: keyOf, getModel: aiModel });
+    ai = createAI({ getProvider: aiProvider, getKey: keyOf, getModel: aiModel, getPersona: () => persona });
   }
   return ai;
 }
@@ -744,10 +745,19 @@ function onPetted() {
 }
 
 // 팝업 입력 창 (Windows 는 prompt() 를 지원하지 않아 모든 기기에서 같은 창을 쓴다)
-function openModal({ label, value = '', hint = '', link = null, paste = false, secret = false }) {
+function openModal({ label, value = '', hint = '', link = null, paste = false, secret = false, area = null }) {
   return new Promise((resolve) => {
     const modal = $('modal');
     const input = $('modal-input');
+    const textarea = $('modal-textarea');
+    // 두 번째 칸(여러 줄)이 있으면 결과는 { value, area }
+    $('modal-label2').hidden = textarea.hidden = !area;
+    if (area) {
+      $('modal-label2').textContent = area.label;
+      textarea.value = area.value ?? '';
+      textarea.placeholder = area.placeholder ?? '';
+    }
+    input.placeholder = area?.inputPlaceholder ?? '';
     $('modal-label').textContent = label;
     $('modal-hint').textContent = hint;
     $('modal-link').hidden = !link;
@@ -768,7 +778,7 @@ function openModal({ label, value = '', hint = '', link = null, paste = false, s
     };
     $('modal-form').onsubmit = (e) => {
       e.preventDefault();
-      done(input.value);
+      done(area ? { value: input.value, area: textarea.value } : input.value);
     };
     $('modal-cancel').onclick = () => done(null);
     // 입력칸에 키보드가 안 떠도 복사한 키를 바로 넣을 수 있게
@@ -903,6 +913,41 @@ $('btn-ai-key-del').onclick = () => {
   syncAI();
 };
 
+// ── 🎭 캐릭터 성격 (Gemini/Claude 가 대사·대화·동작에 반영) ──
+let persona = { name: '', traits: '', ...store.json('persona', {}) };
+function setPersona(p) {
+  persona = { name: String(p?.name ?? '').slice(0, 20), traits: String(p?.traits ?? '').slice(0, 300) };
+  store.set('persona', JSON.stringify(persona));
+  syncPersona();
+}
+function syncPersona() {
+  const s = [persona.name, persona.traits].filter(Boolean).join(' · ');
+  $('persona-summary').textContent = s || '기본 (다정한 반말)';
+}
+$('btn-persona').onclick = async () => {
+  const out = await openModal({
+    label: '🎭 캐릭터 이름',
+    value: persona.name,
+    hint: '정한 성격과 말투로 Gemini/Claude 가 대사를 하고, 말 걸기에 대답하고, 새 동작을 만들어요. (🆓 내장 모드는 이름만 써요)',
+    area: {
+      label: '성격 · 말투 · 좋아하는 것',
+      value: persona.traits,
+      placeholder: '예) 츤데레, 존댓말 씀, 딸기 우유를 좋아함, 칭찬 받으면 부끄러워함',
+    },
+    paste: false,
+  });
+  if (!out) return;
+  setPersona({ name: out.value.trim(), traits: out.area.trim() });
+  toast(persona.name || persona.traits ? `🎭 ${persona.name || '캐릭터'} 성격 저장!` : '기본 성격으로 돌아왔어요');
+  // 바로 새 성격으로 한마디 (온라인 AI 를 쓸 수 있을 때)
+  if (aiOnline() && (persona.name || persona.traits)) {
+    getAI()
+      .then((a) => a.line(aiContext('주인이 방금 나의 이름과 성격을 새로 정해 줬어. 새 성격으로 첫인사를 해')))
+      .then((text) => say(text), () => {});
+  } else if (persona.name) say(`나는 ${persona.name}! 잘 부탁해 😊`);
+};
+syncPersona();
+
 // 동작 이름(상태 또는 custom N, dance) 실행
 async function playMotionId(id) {
   if (id === 'dance') {
@@ -940,7 +985,7 @@ $('btn-chat').onclick = async () => {
       onAIError(e);
     }
   }
-  out ??= (await getOffline()).offlineChat(msg);
+  out ??= (await getOffline()).offlineChat(msg, persona.name);
   aiState.history.push([msg, out.line]);
   await playMotionId(out.motion);
   pet.nextLineAt = pet.stateTime + 6; // 대답이 바로 다른 대사로 덮이지 않게

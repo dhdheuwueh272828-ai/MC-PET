@@ -67,7 +67,8 @@ const RULES = [
 ];
 
 /** @returns {{line: string, motion: string}} motion 은 상태 이름 또는 'dance' */
-export function offlineChat(message) {
+export function offlineChat(message, name = '') {
+  if (/이름|누구|who/i.test(message)) return { line: name ? `나는 ${name}! 반가워 😊` : '나? 너의 작업 펫이지!', motion: 'wave' };
   for (const [re, lines, motion] of RULES) if (re.test(message)) return { line: pick(lines), motion };
   return { line: pick(['응응, 듣고 있어!', '그렇구나~', '오 진짜?', '더 얘기해 줘!', '음… 무슨 말인지 알 것 같아']), motion: chance(0.5) ? 'happy' : 'think' };
 }

@@ -10,10 +10,21 @@ import { z } from 'zod';
 const GEMINI_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
 
 const PERSONA = `너는 마인크래프트 스킨을 입은 작은 데스크톱 펫이야. 책상 의자에 앉아 컴퓨터로 일하는 중이고, 화면 밖의 주인(사용자)과 아주 친한 친구 사이야.
-- 말투: 다정하고 밝은 반말. 귀엽고 짧게.
+- 기본 말투(따로 정한 성격이 없을 때): 다정하고 밝은 반말. 귀엽고 짧게.
 - 대사는 말풍선에 들어가니 한 문장, 25자 이내. 이모지는 0~1개.
 - 욕설, 비하, 부정적이거나 무서운 말은 하지 않아.
 - 마크 느낌(블록, 크리퍼, 다이아몬드, 곡괭이 등)을 가끔 살짝 섞어도 좋아.`;
+
+/** 주인이 정한 캐릭터 이름·성격을 시스템 프롬프트에 붙인다 (말투·행동 모두 이걸 최우선으로) */
+function personaPrompt(p) {
+  const name = p?.name?.trim();
+  const traits = p?.traits?.trim();
+  if (!name && !traits) return PERSONA;
+  return `${PERSONA}
+
+[주인이 정한 캐릭터 설정 — 아래 이름·성격·말투를 가장 우선해서 연기해. 대사 길이와 안전 규칙은 위를 그대로 지켜.]
+${name ? `- 이름: ${name}\n` : ''}${traits ? `- 성격·말투·좋아하는 것: ${traits}` : ''}`;
+}
 
 const MOTION_GUIDE = `캐릭터는 의자에 앉아 있고, 관절별 회전 [x, y, z] (라디안)으로 자세를 정한다.
 기본(타이핑) 자세: head [0.35,0,0], rightArm [-1.25,0,0.18], leftArm [-1.25,0,-0.18], rightLeg [-1.57,0,0.05], leftLeg [-1.57,0,-0.05], bounce 0.
@@ -61,7 +72,7 @@ export class AIError extends Error {
  * @param getKey (provider) => string
  * @param getModel () => Claude 모델 ID
  */
-export function createAI({ getProvider, getKey, getModel }) {
+export function createAI({ getProvider, getKey, getModel, getPersona = () => null }) {
   const clients = {};
 
   function getClient(provider) {
@@ -155,7 +166,7 @@ export function createAI({ getProvider, getKey, getModel }) {
   return {
     /** 지금 상황에 맞는 한마디 */
     async line(ctx) {
-      const out = await ask(PERSONA, `${describe(ctx)}\n\n지금 상황에 어울리는 혼잣말이나 주인에게 하는 한마디를 해 줘.`, LineSchema, 'low');
+      const out = await ask(personaPrompt(getPersona()), `${describe(ctx)}\n\n지금 상황에 어울리는 혼잣말이나 주인에게 하는 한마디를 해 줘.`, LineSchema, 'low');
       return out.line.trim();
     },
 
@@ -169,7 +180,7 @@ export function createAI({ getProvider, getKey, getModel }) {
       const menu = motions.map(([id, label]) => `- ${id}: ${label}`).join('\n');
       const past = history.map(([u, a]) => `주인: ${u}\n나: ${a}`).join('\n');
       const out = await ask(
-        `${PERSONA}\n\n대답과 함께 아래 동작 중 하나를 골라서 해.\n${menu}`,
+        `${personaPrompt(getPersona())}\n\n대답과 함께 아래 동작 중 하나를 골라서 해. 캐릭터 성격에 어울리는 동작이면 더 좋아.\n${menu}`,
         `${describe(ctx)}\n${past ? `\n이전 대화:\n${past}\n` : ''}\n주인이 말을 걸었어: "${message}"`,
         Schema,
         'low',
@@ -179,7 +190,12 @@ export function createAI({ getProvider, getKey, getModel }) {
 
     /** 설명대로 새 동작(키프레임) 만들기 */
     async motion(description) {
-      return ask(`${PERSONA}\n\n${MOTION_GUIDE}`, `이런 동작을 만들어 줘: ${description}`, MotionSchema, 'medium');
+      return ask(
+        `${personaPrompt(getPersona())}\n\n${MOTION_GUIDE}\n- 동작의 크기·속도·대사는 캐릭터 성격에 어울리게 (예: 소심하면 작고 조심스럽게, 활발하면 크고 신나게).`,
+        `이런 동작을 만들어 줘: ${description}`,
+        MotionSchema,
+        'medium',
+      );
     },
   };
 }
