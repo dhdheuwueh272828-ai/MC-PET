@@ -139,6 +139,11 @@ html.compact body { background: linear-gradient(var(--bg-top), var(--bg-bottom) 
 html.compact #panel { width: calc(100% - 16px); bottom: max(8px, env(safe-area-inset-bottom)); padding: 8px; gap: 6px; }
 html.compact #panel button { padding: 6px 8px; font-size: 12px; }
 html.compact #skin-info { display: none; }
+/* 아주 작은 창: 버튼·말풍선도 작게 */
+html.compact #btn-menu { width: 32px; height: 32px; font-size: 15px; top: max(6px, env(safe-area-inset-top)); right: max(6px, env(safe-area-inset-right)); }
+html.compact #bubble { font-size: 11px; padding: 3px 7px; }
+html.compact .zoom-hint { display: none; }
+.zoom-hint { font-size: 11px; }
 
 /* 탭 */
 .tabs { display: flex; gap: 4px; background: var(--chip); border-radius: 12px; padding: 3px; }
