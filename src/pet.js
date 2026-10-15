@@ -161,6 +161,9 @@ export class PetController {
     this.pokes.push(now);
     const n = this.pokes.length;
     const hour = new Date().getHours();
+    // 🎭 정한 성격의 터치 대사가 있으면 그걸로 (연타 중이면 연타용)
+    const custom = this.tapLine?.(n >= 4 ? 'spam' : 'tap');
+    if (custom) return this.interrupt('wave', { line: custom });
     let lines = STATES.wave.lines;
     if (n >= 7) lines = ['그만 눌러~ 😤', '으아아 정신없어!', '나 화났어! …농담이야 ㅎㅎ', '손가락 아프겠다!'];
     else if (n >= 4) lines = ['간지러워!', '왜 자꾸 눌러~ ㅎㅎ', '톡톡톡! 나도 톡톡!', '장난꾸러기네?'];
@@ -182,7 +185,7 @@ export class PetController {
     if (this.state === 'happy') {
       this.stateDuration = Math.max(this.stateDuration, this.stateTime + 1.6);
     } else {
-      this.interrupt('happy');
+      this.interrupt('happy', { line: this.tapLine?.('pet') ?? undefined });
     }
   }
 
