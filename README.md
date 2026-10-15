@@ -25,6 +25,7 @@
 | Claude | 유료 | [Claude Console](https://console.anthropic.com/settings/keys) 키. Opus 5.5 / Haiku 5.5(저렴) |
 
 - **🎭 캐릭터 성격**: 이름과 성격·말투·좋아하는 것을 적으면 Gemini/Claude 가 그 캐릭터로 대사·대답·동작을 만들어요 (프리셋에도 함께 저장)
+  - 성격·말투·좋아하는 것은 최대 1000자까지 적을 수 있어요 (입력칸 아래에 글자 수 표시)
 - **AI 대사**: 끔 / 가끔(5분, 기본) / 자주(1분)
 - **💬 말 걸기**: 대답 + 어울리는 동작
 - **✨ 새 동작 만들기**: "만세 세 번 하고 박수", "신나게 춤추기" → 새 동작으로 저장, 자동 모드에서도 가끔 나와요
@@ -61,7 +62,7 @@
 > Android 의 다른 앱 위 플로팅 펫은 네이티브 오버레이 서비스가 필요해 이번 버전에는 포함되지 않았습니다.
 
 ## 🌐 웹 버전 (설치 없이, 아이패드 추천)
-`main` 에 push 되면 GitHub Pages 로 자동 배포됩니다 → `https://dhdheuwueh272828-ai.github.io/MC-PET/`
+`main` 에 push 되면 GitHub Pages 로 자동 배포됩니다 → `https://sunsaai.github.io/MC-PET/`
 
 1. 아이패드/아이폰 **Safari** 로 위 주소 열기
 2. **공유 버튼 → 홈 화면에 추가**
