@@ -10,7 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron": "npm run build && electron .",
-    "dist:win": "npm run build && electron-builder --win",
+    "dist:win": "npm run build && electron-builder --win --publish never",
     "cap:sync": "npm run build && cap sync",
     "android": "npm run cap:sync && cap open android",
     "ios": "npm run cap:sync && cap open ios",
