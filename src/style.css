@@ -124,6 +124,9 @@ button.primary { background: var(--accent); color: #10201e; font-weight: 700; fl
   z-index: 2;
 }
 body.panel-hidden #panel { display: none; }
+button:disabled { opacity: 0.5; }
+/* Document PiP 창 */
+body.in-pip { background: linear-gradient(var(--bg-top), var(--bg-bottom) 72%, var(--floor) 72%); }
 /* 미니 모드(작은 창): 바닥 띠를 낮춰 펫이 화면 중앙에 오도록 */
 html.compact body { background: linear-gradient(var(--bg-top), var(--bg-bottom) 70%, var(--floor) 70%); }
 html.compact #panel { width: calc(100% - 16px); bottom: max(8px, env(safe-area-inset-bottom)); padding: 8px; gap: 6px; }
@@ -161,6 +164,9 @@ html.desktop #btn-menu {
   z-index: 2;
 }
 body.panel-hidden #panel { display: none; }
+button:disabled { opacity: 0.5; }
+/* Document PiP 창 */
+body.in-pip { background: linear-gradient(var(--bg-top), var(--bg-bottom) 72%, var(--floor) 72%); }
 /* 미니 모드(작은 창): 바닥 띠를 낮춰 펫이 화면 중앙에 오도록 */
 html.compact body { background: linear-gradient(var(--bg-top), var(--bg-bottom) 70%, var(--floor) 70%); }
 html.compact #panel { width: calc(100% - 16px); bottom: max(8px, env(safe-area-inset-bottom)); padding: 8px; gap: 6px; }
