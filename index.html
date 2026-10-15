@@ -29,6 +29,7 @@
         <button data-tab="char" class="on">🧍 캐릭터</button>
         <button data-tab="deco">🎨 꾸미기</button>
         <button data-tab="preset">💾 프리셋</button>
+        <button data-tab="ai">🤖 AI</button>
         <button id="btn-panel-close" class="desk-only" aria-label="닫기">✕</button>
       </div>
 
@@ -74,6 +75,44 @@
         <p class="hint">스킨·팔·배경·도구·색깔이 함께 저장돼요. 이 기기(브라우저)에만 저장됩니다.</p>
         <p class="hint" id="build-info"></p>
       </section>
+
+      <section data-tab="ai" hidden>
+        <p class="hint">
+          Claude 가 실시간으로 대사를 만들고, 말을 걸면 대답하고, 설명한 대로 새 동작을 만들어요.
+          본인 Claude API 키가 필요하고 쓴 만큼 요금이 나가요. 키는 이 기기에만 저장돼요.
+        </p>
+        <div class="row">
+          <span id="ai-key-state" class="label"></span>
+          <button id="btn-ai-key">🔑 API 키 입력</button>
+          <button id="btn-ai-key-del" hidden>삭제</button>
+        </div>
+        <div class="row"><span class="label">모델</span><div class="seg" id="ai-model"></div></div>
+        <div class="row">
+          <span class="label">AI 대사</span>
+          <div class="seg" id="ai-lines">
+            <button data-v="off">끔</button>
+            <button data-v="rare">가끔 (5분)</button>
+            <button data-v="often">자주 (1분)</button>
+          </div>
+        </div>
+        <div class="row">
+          <button id="btn-chat" class="primary">💬 말 걸기</button>
+          <button id="btn-new-motion" class="primary">✨ 새 동작 만들기</button>
+        </div>
+        <div id="motion-list"></div>
+      </section>
+    </div>
+
+    <!-- Windows(Electron)는 prompt() 를 지원하지 않아 직접 만든 입력 창을 쓴다 -->
+    <div id="modal" hidden>
+      <form id="modal-form">
+        <label id="modal-label" for="modal-input"></label>
+        <input id="modal-input" type="text" autocomplete="off" />
+        <div class="row">
+          <button type="button" id="modal-cancel">취소</button>
+          <button type="submit" class="primary">확인</button>
+        </div>
+      </form>
     </div>
 
     <input type="file" id="skin-file" accept="image/png,image/*" hidden />
