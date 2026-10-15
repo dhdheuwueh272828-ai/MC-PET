@@ -52,6 +52,7 @@ function createWindow() {
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
 
   win.on('moved', () => {
+    if (compactBounds) return;
     const [nx, ny] = win.getPosition();
     Object.assign(config, { x: nx, y: ny });
     saveConfig();
@@ -119,6 +120,33 @@ ipcMain.on('pet:menu', (_e, state) => {
       ],
     },
     { label: '행동', submenu: modes.map(([k, l]) => radio(l, state.mode === k, () => send('mode', k))) },
+    { type: 'separator' },
+    {
+      label: '배경',
+      submenu: state.themes.map(([id, label]) => radio(label, state.deco.theme === id, () => send('deco', { theme: id }))),
+    },
+    {
+      label: '작업 도구',
+      submenu: [
+        radio('💻 노트북', state.deco.setup === 'laptop', () => send('deco', { setup: 'laptop' })),
+        radio('⌨️ 키보드 + 마우스', state.deco.setup === 'desktop', () => send('deco', { setup: 'desktop' })),
+      ],
+    },
+    {
+      label: '책상 색',
+      submenu: state.desks.map(([hex, label]) => radio(label, state.deco.desk.toLowerCase() === hex, () => send('deco', { desk: hex }))),
+    },
+    {
+      label: '프리셋',
+      submenu: [
+        ...(state.presets.length
+          ? state.presets.map((name) => ({ label: name, click: () => send('preset', name) }))
+          : [{ label: '(저장된 프리셋 없음)', enabled: false }]),
+        { type: 'separator' },
+        { label: '프리셋 저장·관리...', click: () => send('open-panel', 'preset') },
+      ],
+    },
+    { label: '꾸미기 창 열기 (색 직접 고르기)...', click: () => send('open-panel', 'deco') },
     {
       label: '크기',
       submenu: [
@@ -161,6 +189,24 @@ ipcMain.on('pet:drag-move', () => {
 ipcMain.on('pet:drag-end', () => {
   drag = null;
 });
+// 꾸미기·프리셋 창: 잠시 창을 키워 패널을 보여 준다
+let compactBounds = null;
+ipcMain.on('pet:panel-mode', (_e, open) => {
+  if (!win) return;
+  if (open && !compactBounds) {
+    compactBounds = win.getBounds();
+    const area = screen.getDisplayMatching(compactBounds).workArea;
+    const w = 460;
+    const h = Math.min(760, area.height);
+    const x = Math.min(Math.max(area.x, compactBounds.x + compactBounds.width - w), area.x + area.width - w);
+    const y = Math.min(Math.max(area.y, compactBounds.y + compactBounds.height - h), area.y + area.height - h);
+    win.setBounds({ x, y, width: w, height: h });
+  } else if (!open && compactBounds) {
+    win.setBounds(compactBounds);
+    compactBounds = null;
+  }
+});
+
 ipcMain.on('pet:ignore-mouse', (_e, ignore) => {
   win?.setIgnoreMouseEvents(ignore, { forward: true });
 });

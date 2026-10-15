@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { loadImage, normalizeSkin, readFileAsDataURL, createDefaultSkin } from './skin.js';
 import { PlayerModel } from './model.js';
-import { buildWorkspace } from './scene.js';
+import { buildWorkspace, DESK_COLORS, GEAR_COLORS } from './scene.js';
+import { THEMES, buildTheme, disposeTheme } from './themes.js';
 import { PetController, STATES } from './pet.js';
 import { createPip } from './pip.js';
 
@@ -28,8 +29,16 @@ const store = {
     try {
       if (value == null) localStorage.removeItem('mcpet.' + key);
       else localStorage.setItem('mcpet.' + key, value);
+      return true;
     } catch {
-      /* 저장 불가 환경 무시 */
+      return false; // 저장 불가 환경(사생활 보호 모드, 용량 초과)
+    }
+  },
+  json(key, fallback) {
+    try {
+      return JSON.parse(this.get(key, null)) ?? fallback;
+    } catch {
+      return fallback;
     }
   },
 };
@@ -51,7 +60,8 @@ const camera = new THREE.PerspectiveCamera(30, 1, 1, 500);
 const LOOK_AT = new THREE.Vector3(0.5, 17, 7);
 const CAM_DIR = new THREE.Vector3(0.62, 0.42, 0.66).normalize();
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7a9a, 1.7));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x8a7a9a, 1.7);
+scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
 sun.position.set(25, 60, 35);
 sun.castShadow = true;
@@ -68,6 +78,44 @@ scene.add(workspace.group);
 
 const model = new PlayerModel(createDefaultSkin());
 scene.add(model.root);
+
+// ── 꾸미기 (배경 · 책상 색 · 작업 도구 · 키보드/마우스 색) ──
+const DEFAULT_DECO = { theme: 'none', desk: DESK_COLORS[0][2], setup: 'laptop', keyboard: GEAR_COLORS[0], mouse: GEAR_COLORS[0] };
+let deco = { ...DEFAULT_DECO, ...store.json('deco', {}) };
+let theme = null;
+
+function applyDeco(next, { save = true } = {}) {
+  const prev = deco;
+  deco = { ...DEFAULT_DECO, ...next };
+  if (!theme || prev.theme !== deco.theme) setTheme(deco.theme);
+  workspace.setDeskColor(deco.desk);
+  workspace.setSetup(deco.setup);
+  workspace.setKeyboardColor(deco.keyboard);
+  workspace.setMouseColor(deco.mouse);
+  if (save) store.set('deco', JSON.stringify(deco));
+  pip?.invalidate();
+  syncPipButton();
+  syncDeco();
+}
+
+function setTheme(name) {
+  if (theme && !theme.none) {
+    scene.remove(theme.group);
+    disposeTheme(theme);
+  }
+  theme = buildTheme(name) ?? { none: true };
+  const has = !theme.none;
+  if (has) scene.add(theme.group);
+  // 배경이 없으면 투명(바탕화면/CSS 배경이 보임), 있으면 방 색으로 채운다
+  renderer.setClearColor(has ? theme.clear : 0x000000, has ? 1 : 0);
+  workspace.floorShadow.visible = !has;
+  const [sky, ground, k] = has ? theme.hemi : ['#ffffff', '#8a7a9a', 1.7];
+  hemi.color.set(sky);
+  hemi.groundColor.set(ground);
+  hemi.intensity = k;
+  sun.intensity = has ? theme.sun : 1.6;
+  document.documentElement.classList.toggle('has-theme', has);
+}
 
 let currentSkin = null;
 let pip = null;
@@ -194,11 +242,13 @@ function setPanelOpen(open) {
   updateCamera();
 }
 
+let desktopPanel = false; // Windows 펫에서 꾸미기 창을 연 상태
+
 function updateCamera() {
   const portrait = camera.aspect < 1;
-  const showPanel = !desktop && panelOpen;
+  const showPanel = desktop ? desktopPanel : panelOpen;
   let dist;
-  if (desktop) dist = 108;
+  if (desktop && !desktopPanel) dist = 108;
   // 세로 화면: 책상 전체(가로 약 55칸)가 들어오도록 화면 비율에 맞춰 거리를 늘린다
   else if (portrait) dist = (showPanel ? 105 : 95) / camera.aspect;
   else dist = showPanel ? 120 : 112;
@@ -206,6 +256,7 @@ function updateCamera() {
   // 패널이 보이면 그만큼 시점을 내리고, 숨기면 말풍선 공간만 조금 남긴다
   if (showPanel) target.y -= portrait ? 9 : 6;
   else if (!desktop) target.y -= portrait ? 3 : 4;
+  if (showPanel && desktop) target.y -= 8;
   camera.position.copy(target).addScaledVector(CAM_DIR, dist);
   camera.lookAt(target);
   camera.updateProjectionMatrix();
@@ -272,13 +323,21 @@ canvas.addEventListener('pointercancel', () => {
 });
 canvas.addEventListener('contextmenu', (e) => {
   e.preventDefault();
-  if (desktop) bridge.showMenu({ arms: armsMode, mode: store.get('mode', 'auto') });
+  if (desktop)
+    bridge.showMenu({
+      arms: armsMode,
+      mode: store.get('mode', 'auto'),
+      deco,
+      themes: THEMES,
+      desks: DESK_COLORS.map(([id, label, hex]) => [hex, label]),
+      presets: loadPresets().map((p) => p.name),
+    });
 });
 
 // 데스크톱: 투명한 픽셀 위에서는 클릭이 뒤의 창으로 통과되게
 let ignoring = false;
 function updateClickThrough(x, y) {
-  if (press) return;
+  if (press || desktopPanel) return;
   const gl = renderer.getContext();
   const px = new Uint8Array(4);
   const dpr = renderer.getPixelRatio();
@@ -296,6 +355,11 @@ if (desktop) {
     else if (type === 'reset-skin') resetSkin();
     else if (type === 'arms') setArms(value);
     else if (type === 'mode') setMode(value);
+    else if (type === 'deco') applyDeco({ ...deco, ...value });
+    else if (type === 'preset') {
+      const p = loadPresets().find((x) => x.name === value);
+      if (p) applyPreset(p);
+    } else if (type === 'open-panel') setDesktopPanel(true, value);
   });
   // 커서가 창 밖에 있어도 고개를 돌려 쳐다보기
   bridge.onCursor?.(({ x, y }) => pet.look((x / viewW) * 2 - 1, -(y / viewH) * 2 + 1));
@@ -352,6 +416,169 @@ function syncPanel() {
   for (const b of modes.querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === mode);
 }
 
+// ── 패널 탭 ──
+function showTab(name) {
+  for (const b of $('tabs').querySelectorAll('[data-tab]')) b.classList.toggle('on', b.dataset.tab === name);
+  for (const sec of $('panel').querySelectorAll('section')) sec.hidden = sec.dataset.tab !== name;
+  if (name === 'preset') renderPresets();
+}
+for (const b of $('tabs').querySelectorAll('[data-tab]')) b.onclick = () => showTab(b.dataset.tab);
+
+function setDesktopPanel(open, tab) {
+  desktopPanel = open;
+  document.documentElement.classList.toggle('desktop-panel', open);
+  if (open) {
+    ignoring = false;
+    bridge.setIgnoreMouse(false);
+    showTab(tab || 'deco');
+  }
+  bridge.setPanelMode(open);
+  updateCamera();
+}
+$('btn-panel-close').onclick = () => setDesktopPanel(false);
+
+// ── 꾸미기 탭 ──
+const themeBox = $('themes');
+for (const [id, label] of THEMES) {
+  const b = document.createElement('button');
+  b.dataset.v = id;
+  b.textContent = label;
+  b.onclick = () => applyDeco({ ...deco, theme: id });
+  themeBox.appendChild(b);
+}
+for (const b of $('setup').querySelectorAll('button')) b.onclick = () => applyDeco({ ...deco, setup: b.dataset.v });
+
+function swatchRow(el, colors, key) {
+  for (const [hex, label] of colors) {
+    const b = document.createElement('button');
+    b.className = 'swatch';
+    b.style.background = hex;
+    b.title = label || hex;
+    b.dataset.v = hex;
+    b.onclick = () => applyDeco({ ...deco, [key]: hex });
+    el.appendChild(b);
+  }
+  // 직접 고르기
+  const input = document.createElement('input');
+  input.type = 'color';
+  input.title = '직접 고르기';
+  input.oninput = () => applyDeco({ ...deco, [key]: input.value }, { save: false });
+  input.onchange = () => applyDeco({ ...deco, [key]: input.value });
+  el.appendChild(input);
+}
+swatchRow($('desk-colors'), DESK_COLORS.map(([, label, hex]) => [hex, label]), 'desk');
+swatchRow($('kb-colors'), GEAR_COLORS.map((hex) => [hex]), 'keyboard');
+swatchRow($('mouse-colors'), GEAR_COLORS.map((hex) => [hex]), 'mouse');
+
+function syncDeco() {
+  for (const b of themeBox.children) b.classList.toggle('on', b.dataset.v === deco.theme);
+  for (const b of $('setup').children) b.classList.toggle('on', b.dataset.v === deco.setup);
+  for (const [id, key] of [['desk-colors', 'desk'], ['kb-colors', 'keyboard'], ['mouse-colors', 'mouse']]) {
+    for (const el of $(id).children) {
+      if (el.tagName === 'INPUT') el.value = deco[key];
+      else el.classList.toggle('on', el.dataset.v.toLowerCase() === deco[key].toLowerCase());
+    }
+  }
+  $('mouse-row').classList.toggle('disabled', deco.setup !== 'desktop');
+}
+
+// ── 프리셋 (스킨 + 팔 + 꾸미기 저장/불러오기) ──
+function loadPresets() {
+  const list = store.json('presets', []);
+  return Array.isArray(list) ? list : [];
+}
+
+function savePreset(name) {
+  name = name.trim();
+  if (!name) return toast('프리셋 이름을 입력해 주세요');
+  const preset = { name, skin: store.get('skin', null), arms: armsMode, deco: { ...deco }, at: Date.now() };
+  const list = loadPresets().filter((p) => p.name !== name);
+  list.unshift(preset);
+  if (!store.set('presets', JSON.stringify(list))) return toast('저장 공간이 부족하거나 저장할 수 없는 환경이에요');
+  toast(`'${name}' 저장 완료`);
+  renderPresets();
+}
+
+async function applyPreset(p) {
+  if (p.skin) await loadSkinFromURL(p.skin).catch(() => toast('스킨을 불러오지 못했어요'));
+  else {
+    store.set('skin', null);
+    applySkin(createDefaultSkin());
+  }
+  setArms(p.arms || 'auto');
+  applyDeco(p.deco || DEFAULT_DECO);
+  toast(`'${p.name}' 불러옴`);
+}
+
+function deletePreset(name) {
+  store.set('presets', JSON.stringify(loadPresets().filter((p) => p.name !== name)));
+  renderPresets();
+}
+
+const THEME_LABEL = Object.fromEntries(THEMES);
+function renderPresets() {
+  const box = $('preset-list');
+  box.replaceChildren();
+  const list = loadPresets();
+  if (!list.length) {
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = '아직 저장된 프리셋이 없어요.';
+    box.appendChild(p);
+    return;
+  }
+  for (const p of list) {
+    const row = document.createElement('div');
+    row.className = 'preset';
+    row.appendChild(faceThumb(p.skin));
+    const meta = document.createElement('div');
+    meta.className = 'meta';
+    const name = document.createElement('div');
+    name.className = 'name';
+    name.textContent = p.name;
+    const desc = document.createElement('div');
+    desc.className = 'desc';
+    const d = { ...DEFAULT_DECO, ...p.deco };
+    desc.textContent = `${THEME_LABEL[d.theme] ?? '기본'} · ${d.setup === 'desktop' ? '키보드+마우스' : '노트북'}`;
+    meta.append(name, desc);
+    const load = document.createElement('button');
+    load.textContent = '불러오기';
+    load.onclick = () => applyPreset(p);
+    const del = document.createElement('button');
+    del.textContent = '🗑';
+    del.title = '삭제';
+    del.onclick = () => {
+      if (confirm(`'${p.name}' 프리셋을 지울까요?`)) deletePreset(p.name);
+    };
+    row.append(meta, load, del);
+    box.appendChild(row);
+  }
+}
+
+// 프리셋 목록용 얼굴 썸네일 (스킨의 얼굴 8x8 + 모자 레이어)
+function faceThumb(src) {
+  const c = document.createElement('canvas');
+  c.width = c.height = 8;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  const draw = (canvasOrImg) => {
+    const s = (canvasOrImg.naturalWidth || canvasOrImg.width) / 64;
+    ctx.drawImage(canvasOrImg, 8 * s, 8 * s, 8 * s, 8 * s, 0, 0, 8, 8);
+    ctx.drawImage(canvasOrImg, 40 * s, 8 * s, 8 * s, 8 * s, 0, 0, 8, 8);
+  };
+  if (src) loadImage(src).then(draw, () => {});
+  else draw(createDefaultSkin().canvas);
+  return c;
+}
+
+$('btn-preset-save').onclick = () => {
+  savePreset($('preset-name').value);
+  $('preset-name').value = '';
+};
+$('preset-name').onkeydown = (e) => {
+  if (e.key === 'Enter') $('btn-preset-save').click();
+};
+
 // 드래그&드롭으로 스킨 적용 (PC 브라우저 / Windows)
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => {
@@ -364,6 +591,7 @@ window.addEventListener('drop', (e) => {
 const saved = store.get('skin', null);
 if (saved) loadSkinFromURL(saved, { save: false }).catch(() => applySkin(createDefaultSkin()));
 else applySkin(createDefaultSkin());
+applyDeco(deco, { save: false });
 const savedMode = store.get('mode', 'auto');
 if (savedMode !== 'auto' && STATES[savedMode]) pet.setState(savedMode, { manual: true });
 syncPanel();
@@ -371,6 +599,7 @@ syncPanel();
 const clock = new THREE.Clock();
 const headWorld = new THREE.Vector3();
 const laptopPoint = new THREE.Vector3(0, 22, 13);
+const monitorPoint = new THREE.Vector3(-4, 30, 16);
 let glyphAcc = 0;
 
 function frame() {
@@ -378,12 +607,13 @@ function frame() {
   const typing = pet.update(dt);
 
   workspace.screenTexture.userData.tick(typing * dt * 40);
+  theme?.update?.(dt);
   screenLight.intensity = 55 + Math.sin(clock.elapsedTime * 7) * 4 * typing;
 
   glyphAcc += dt * typing;
   if (glyphAcc > 0.45) {
     glyphAcc = 0;
-    spawnGlyph(toScreen(laptopPoint));
+    spawnGlyph(toScreen(workspace.setup === 'desktop' ? monitorPoint : laptopPoint));
   }
 
   renderer.render(scene, camera);

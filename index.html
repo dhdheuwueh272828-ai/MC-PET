@@ -23,24 +23,56 @@
 
     <button id="btn-menu" aria-label="메뉴 열기/닫기">⚙️</button>
 
-    <!-- 모바일/웹 전용 컨트롤 (Windows 데스크톱 펫은 우클릭 메뉴 사용) -->
+    <!-- 조작 패널 (Windows 데스크톱 펫은 우클릭 메뉴 → "꾸미기·프리셋 창"에서 열림) -->
     <div id="panel">
-      <div class="row">
-        <button id="btn-skin" class="primary">🎨 스킨 불러오기</button>
-        <button id="btn-name">👤 닉네임</button>
-        <button id="btn-pip" hidden>📺 PiP</button>
-        <button id="btn-reset" title="기본 스킨">↺</button>
+      <div class="tabs" id="tabs">
+        <button data-tab="char" class="on">🧍 캐릭터</button>
+        <button data-tab="deco">🎨 꾸미기</button>
+        <button data-tab="preset">💾 프리셋</button>
+        <button id="btn-panel-close" class="desk-only" aria-label="닫기">✕</button>
       </div>
-      <div class="row">
-        <span class="label">팔</span>
-        <div class="seg" id="arms">
-          <button data-v="auto">자동</button>
-          <button data-v="classic">클래식</button>
-          <button data-v="slim">슬림</button>
+
+      <section data-tab="char">
+        <div class="row">
+          <button id="btn-skin" class="primary">🎨 스킨 불러오기</button>
+          <button id="btn-name">👤 닉네임</button>
+          <button id="btn-pip" hidden>📺 PiP</button>
+          <button id="btn-reset" title="기본 스킨">↺</button>
         </div>
-        <span id="skin-info"></span>
-      </div>
-      <div class="row chips" id="modes"></div>
+        <div class="row">
+          <span class="label">팔</span>
+          <div class="seg" id="arms">
+            <button data-v="auto">자동</button>
+            <button data-v="classic">클래식</button>
+            <button data-v="slim">슬림</button>
+          </div>
+          <span id="skin-info"></span>
+        </div>
+        <div class="row chips" id="modes"></div>
+      </section>
+
+      <section data-tab="deco" hidden>
+        <div class="row"><span class="label">배경</span><div class="chips" id="themes"></div></div>
+        <div class="row">
+          <span class="label">도구</span>
+          <div class="seg" id="setup">
+            <button data-v="laptop">💻 노트북</button>
+            <button data-v="desktop">⌨️ 키보드+마우스</button>
+          </div>
+        </div>
+        <div class="row"><span class="label">책상</span><div class="swatches" id="desk-colors"></div></div>
+        <div class="row"><span class="label">키보드</span><div class="swatches" id="kb-colors"></div></div>
+        <div class="row" id="mouse-row"><span class="label">마우스</span><div class="swatches" id="mouse-colors"></div></div>
+      </section>
+
+      <section data-tab="preset" hidden>
+        <div class="row">
+          <input id="preset-name" type="text" placeholder="프리셋 이름 (예: 겨울 코딩)" maxlength="20" />
+          <button id="btn-preset-save" class="primary small">💾 지금 모습 저장</button>
+        </div>
+        <div id="preset-list"></div>
+        <p class="hint">스킨·팔·배경·도구·색깔이 함께 저장돼요. 이 기기(브라우저)에만 저장됩니다.</p>
+      </section>
     </div>
 
     <input type="file" id="skin-file" accept="image/png,image/*" hidden />
