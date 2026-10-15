@@ -61,7 +61,7 @@
 > Android 의 다른 앱 위 플로팅 펫은 네이티브 오버레이 서비스가 필요해 이번 버전에는 포함되지 않았습니다.
 
 ## 🌐 웹 버전 (설치 없이, 아이패드 추천)
-`main` 에 push 되면 GitHub Pages 로 자동 배포됩니다 → `https://dhdheuwueh272828-ai.github.io/MC-PET/`
+`main` 에 push 되면 GitHub Pages 로 자동 배포됩니다 → `https://sunsaai.github.io/MC-PET/`
 
 1. 아이패드/아이폰 **Safari** 로 위 주소 열기
 2. **공유 버튼 → 홈 화면에 추가**

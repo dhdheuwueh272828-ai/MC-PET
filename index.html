@@ -78,6 +78,11 @@
         </div>
         <div id="preset-list"></div>
         <p class="hint">스킨·팔·배경·도구·색깔이 함께 저장돼요. 이 기기(브라우저)에만 저장됩니다.</p>
+        <div class="row backup">
+          <button id="btn-backup-export">📤 백업 내보내기</button>
+          <button id="btn-backup-import">📥 백업 불러오기</button>
+        </div>
+        <p class="hint">스킨·프리셋·성격·직접 만든 동작·AI 설정을 파일 하나로 저장해 두고, 다른 기기나 나중에 한 번에 되살릴 수 있어요.</p>
         <p class="hint" id="build-info"></p>
       </section>
 
@@ -130,6 +135,7 @@
     </div>
 
     <input type="file" id="skin-file" accept="image/png,image/*" hidden />
+    <input type="file" id="backup-file" accept="application/json,.json" hidden />
     <div id="toast" hidden></div>
     <script type="module" src="./src/main.js"></script>
   </body>

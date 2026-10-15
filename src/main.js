@@ -712,6 +712,121 @@ $('preset-name').onkeydown = (e) => {
   if (e.key === 'Enter') $('btn-preset-save').click();
 };
 
+// ── 백업 / 복원 (mcpet.* 설정 전체를 JSON 파일 하나로) ──
+const BACKUP_VERSION = 1;
+const SECRET_KEYS = ['geminiKey', 'aiKey']; // API 키는 물어보고 동의할 때만 백업
+const BACKUP_KEY_RE = /^[A-Za-z0-9_]+$/;
+
+// 지금 저장된 mcpet.* 값 모으기 { key: 문자열 }
+function readAllSettings() {
+  const out = {};
+  try {
+    for (let i = 0; i < localStorage.length; i++) {
+      const full = localStorage.key(i);
+      if (!full?.startsWith('mcpet.')) continue;
+      const key = full.slice(6);
+      if (BACKUP_KEY_RE.test(key)) out[key] = localStorage.getItem(full);
+    }
+  } catch {}
+  return out;
+}
+
+async function exportBackup() {
+  const data = readAllSettings();
+  const hasKey = SECRET_KEYS.some((k) => data[k]);
+  if (hasKey) {
+    const withKey = confirm('API 키도 백업 파일에 포함할까요?\n\n⚠️ 파일이 다른 사람에게 넘어가면 API 키도 함께 유출돼요. 잘 모르겠으면 "취소"를 누르세요 (키 없이 저장).');
+    if (!withKey) for (const k of SECRET_KEYS) delete data[k];
+  }
+  if (!Object.keys(data).length) return toast('백업할 설정이 아직 없어요');
+  const now = new Date();
+  const ymd = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`;
+  const filename = `mc-pet-backup-${ymd}.json`;
+  const json = JSON.stringify({ app: 'mc-pet', version: BACKUP_VERSION, exportedAt: now.toISOString(), data }, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+
+  // 아이패드·아이폰: 공유 시트(→ "파일에 저장")가 가장 확실하다. 홈 화면 앱에선 download 가 무시될 때가 있음
+  if (!desktop && navigator.canShare && typeof File === 'function') {
+    const file = new File([blob], filename, { type: 'application/json' });
+    if (navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: filename });
+        return toast('백업 파일을 저장했어요');
+      } catch (e) {
+        if (e?.name === 'AbortError') return; // 사용자가 공유 창을 닫음
+        // NotAllowedError 등은 아래 다운로드 방식으로 다시 시도
+      }
+    }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  toast(`'${filename}' 저장 완료`);
+}
+
+// 파일 내용 검사 → 문제 없으면 { key: 문자열 } 반환, 아니면 null
+function parseBackup(text) {
+  let obj;
+  try {
+    obj = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!obj || obj.app !== 'mc-pet' || typeof obj.version !== 'number' || obj.version > BACKUP_VERSION) return null;
+  if (!obj.data || typeof obj.data !== 'object' || Array.isArray(obj.data)) return null;
+  const data = {};
+  for (const [k, v] of Object.entries(obj.data)) {
+    if (!BACKUP_KEY_RE.test(k) || typeof v !== 'string') return null;
+    data[k] = v;
+  }
+  return Object.keys(data).length ? data : null;
+}
+
+async function importBackup(file) {
+  let text;
+  try {
+    text = await file.text();
+  } catch {
+    return toast('파일을 읽지 못했어요');
+  }
+  const data = parseBackup(text);
+  if (!data) return toast('MC-PET 백업 파일이 아니거나 망가진 파일이에요');
+  if (!confirm('지금 설정을 백업 파일 내용으로 덮어쓸까요?\n(스킨·프리셋·성격·동작·AI 설정이 바뀌어요)')) return;
+
+  // 실패하면 되돌릴 수 있게 지금 값을 보관. API 키는 백업에 없으면 그대로 둔다
+  const before = readAllSettings();
+  const writeAll = (src) => {
+    for (const k of Object.keys(readAllSettings())) {
+      if (SECRET_KEYS.includes(k) && !(k in src)) continue;
+      localStorage.removeItem('mcpet.' + k);
+    }
+    for (const [k, v] of Object.entries(src)) localStorage.setItem('mcpet.' + k, v);
+  };
+  try {
+    writeAll(data);
+  } catch {
+    try {
+      writeAll(before);
+    } catch {}
+    return toast('저장 공간이 부족해서 복원하지 못했어요 (설정은 그대로예요)');
+  }
+  toast('복원 완료! 다시 불러오는 중…');
+  setTimeout(() => location.reload(), 600);
+}
+
+$('btn-backup-export').onclick = () => exportBackup();
+$('btn-backup-import').onclick = () => $('backup-file').click();
+$('backup-file').onchange = (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = ''; // 같은 파일을 다시 골라도 동작하도록
+  if (file) importBackup(file);
+};
+
 // 드래그&드롭으로 스킨 적용 (PC 브라우저 / Windows)
 window.addEventListener('dragover', (e) => e.preventDefault());
 window.addEventListener('drop', (e) => {
