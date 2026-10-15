@@ -67,6 +67,8 @@ input, textarea {
   border: 5px solid transparent;
   border-top: 5px solid #222;
 }
+/* 화면 가장자리에 붙었을 땐 꼬리가 엉뚱한 곳을 가리키지 않게 숨김 */
+#bubble.clamped::after { display: none; }
 @keyframes pop { from { transform: translate(-50%, -90%) scale(0.6); opacity: 0; } }
 
 #particles { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
