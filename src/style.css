@@ -166,6 +166,9 @@ html.compact #skin-info { display: none; }
   background: var(--chip); border: 0; border-radius: 10px; padding: 9px 12px;
 }
 button.small { flex: 0 0 auto; font-size: 13px; }
+/* 휴대폰·아이패드는 저장 버튼을 누르면 이름 입력 창이 뜬다 */
+html:not(.desktop) #preset-name { display: none; }
+html:not(.desktop) #btn-preset-save { flex: 1; }
 #preset-list { display: flex; flex-direction: column; gap: 6px; }
 .preset {
   display: flex; align-items: center; gap: 10px; padding: 6px 8px;

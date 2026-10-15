@@ -571,9 +571,15 @@ function faceThumb(src) {
   return c;
 }
 
+// 이름 입력: 휴대폰·아이패드는 시스템 입력 창(prompt)이 가장 확실하게 키보드를 띄운다.
+// Windows(Electron)는 prompt 를 지원하지 않아 패널의 입력칸을 쓴다.
 $('btn-preset-save').onclick = () => {
-  savePreset($('preset-name').value);
-  $('preset-name').value = '';
+  const field = $('preset-name');
+  let name = field.value.trim();
+  if (!name && !desktop) name = prompt('프리셋 이름을 입력하세요', `프리셋 ${loadPresets().length + 1}`) ?? '';
+  if (!name.trim()) return desktop ? toast('프리셋 이름을 입력해 주세요') : undefined;
+  savePreset(name);
+  field.value = '';
 };
 $('preset-name').onkeydown = (e) => {
   if (e.key === 'Enter') $('btn-preset-save').click();
