@@ -41,6 +41,7 @@ export class PetController {
     this.lookTarget = null; // {x, y} NDC, 커서/터치 위치
     this.lookUntil = 0;
     this.typingSpeed = 1;
+    this.mouseOffset = new THREE.Vector3();
     this.setState('work');
   }
 
@@ -119,6 +120,16 @@ export class PetController {
         P.leftArm[2] += Math.sin(t * 4.3) * 0.05;
         P.head[0] += Math.sin(t * 12) * 0.02 * burst;
         P.head[1] = Math.sin(t * 0.5) * 0.08;
+        // 키보드+마우스 모드: 몇 초씩 오른손을 마우스로 옮겨 클릭/스크롤
+        if (this.ws.setup === 'desktop' && Math.sin(t * 0.55) + Math.sin(t * 0.21) > 0.6) {
+          const dx = Math.sin(t * 1.7) * 0.6 + Math.sin(t * 4.1) * 0.25;
+          const dz = Math.sin(t * 1.3) * 0.5;
+          P.rightArm = [-1.27 + dz * 0.04, 0, -0.44 - dx * 0.03];
+          this.mouseOffset.set(dx, 0, dz);
+          P.head[1] = -0.1;
+        } else {
+          this.mouseOffset.multiplyScalar(0.9);
+        }
         break;
       }
       case 'think':
@@ -186,6 +197,9 @@ export class PetController {
       r.y += (y - r.y) * k;
       r.z += (z - r.z) * k;
     }
+
+    if (this.state !== 'work') this.mouseOffset.multiplyScalar(0.9);
+    this.ws.mouse.position.copy(this.ws.mouseHome).add(this.mouseOffset);
 
     this.typingSpeed = typing;
     return typing;
