@@ -9,8 +9,25 @@ export const STATES = {
   stretch: { label: '스트레칭', duration: [3, 4], lines: ['으아~ 🙆', '기지개 쭉!'] },
   sip: { label: '커피', duration: [4, 5], lines: ['커피 타임 ☕', '후루룩'] },
   sleep: { label: '낮잠', duration: [8, 12], lines: ['Zzz...', 'zZ'] },
-  wave: { label: '인사', duration: [2.2, 2.2], lines: ['안녕!', '앗, 안녕 👋', '나 일하는 중이야!', '같이 일하자!'] },
-  happy: { label: '좋아해', duration: [2.6, 2.6], lines: ['헤헤~ 💕', '기분 좋아~', '더 쓰다듬어 줘!', '좋아좋아 😊', '간지러워 ㅎㅎ'] },
+  wave: {
+    label: '인사',
+    duration: [2.2, 2.2],
+    lines: [
+      '안녕!', '앗, 안녕 👋', '나 일하는 중이야!', '같이 일하자!', '왔어? 반가워!', '불렀어?', '응? 무슨 일이야?',
+      '헤헤, 나 여기 있어!', '오늘도 파이팅! 💪', '깜짝이야!', '나 보고 싶었구나?', '뭐 도와줄까?',
+      '다이아 찾으면 나눠 줄게 💎', '크리퍼는 아니지…?', '톡톡 하지 마~ ㅎㅎ', '심심했어?', '같이 놀까?',
+      '잠깐 쉬어도 돼', '물 마셨어? 💧', '집중 집중!',
+    ],
+  },
+  happy: {
+    label: '좋아해',
+    duration: [2.6, 2.6],
+    lines: [
+      '헤헤~ 💕', '기분 좋아~', '더 쓰다듬어 줘!', '좋아좋아 😊', '간지러워 ㅎㅎ', '으헤헤…', '행복해~ ✨',
+      '머리 쓰담 최고야', '너 손 따뜻하다', '계속 해 줘~', '고양이 된 기분이야 🐱', '힘이 난다!',
+      '오늘 하루 다 풀렸어', '나도 너 좋아해 💕', '이러면 일 못 하잖아~',
+    ],
+  },
   custom: { label: '커스텀', duration: [3, 3], lines: [] },
 };
 
@@ -109,7 +126,7 @@ export class PetController {
     this.setState('work');
   }
 
-  setState(name, { manual = false, motion = null } = {}) {
+  setState(name, { manual = false, motion = null, line = null } = {}) {
     const def = STATES[name];
     this.state = name;
     this.stateTime = 0;
@@ -121,7 +138,7 @@ export class PetController {
     if (name !== 'sip' && !(name === 'custom' && motion?.prop === 'coffee')) this.attachMug(false);
     if (name === 'custom') {
       if (motion.line) this.onSay(motion.line, name);
-    } else if (SAY_ON_START.has(name)) this.onSay(pick(def.lines), name);
+    } else if (SAY_ON_START.has(name)) this.onSay(line ?? pick(def.lines), name);
   }
 
   /** 잠깐 하는 동작(인사·쓰다듬기·일회성 커스텀)을 하고 원래 하던 것으로 돌아가기 */
@@ -135,8 +152,27 @@ export class PetController {
     if (on && this.stateDuration === Infinity) this.stateDuration = rand(STATES[this.state === 'custom' ? 'work' : this.state].duration);
   }
 
+  /** 탭했을 때: 하던 일·시간·연타 횟수에 따라 대사가 달라진다 */
   poke() {
-    this.interrupt('wave');
+    const now = this.time;
+    this.pokes = (this.pokes ?? []).filter((t) => now - t < 6);
+    this.pokes.push(now);
+    const n = this.pokes.length;
+    const hour = new Date().getHours();
+    let lines = STATES.wave.lines;
+    if (n >= 7) lines = ['그만 눌러~ 😤', '으아아 정신없어!', '나 화났어! …농담이야 ㅎㅎ', '손가락 아프겠다!'];
+    else if (n >= 4) lines = ['간지러워!', '왜 자꾸 눌러~ ㅎㅎ', '톡톡톡! 나도 톡톡!', '장난꾸러기네?'];
+    else if (this.state === 'sleep') lines = ['으음… 깼잖아 😪', '5분만 더…', '꿈에서 다이아 캐고 있었는데!', '하암~ 잘 잤다'];
+    else if (this.state === 'read') lines = ['책 읽는 중이었어 📖', '여기 재밌는 부분이야!', '같이 읽을래?'];
+    else if (this.state === 'sip') lines = ['커피 흘릴 뻔했어! ☕', '한 모금 줄까?'];
+    else if (this.state === 'think') lines = ['방금 생각나려 했는데!', '흠… 같이 고민해 줄래?'];
+    else if (Math.random() < 0.35) {
+      if (hour < 5 || hour >= 23) lines = ['이 시간에 안 자?', '밤이 깊었어… 🌙', '나도 졸려~'];
+      else if (hour < 11) lines = ['좋은 아침! ☀️', '아침 먹었어?', '오늘도 힘내자!'];
+      else if (hour < 14) lines = ['점심 맛있게 먹었어?', '배고프다… 🍙'];
+      else if (hour >= 18) lines = ['저녁 먹었어?', '오늘 하루 고생했어!'];
+    }
+    this.interrupt('wave', { line: pick(lines) });
   }
 
   /** 쓰다듬는 중: 좋아하는 동작을 이어간다 */
