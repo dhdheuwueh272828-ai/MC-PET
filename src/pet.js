@@ -123,6 +123,8 @@ export class PetController {
     this.mouseOffset = new THREE.Vector3();
     this.bounce = 0;
     this.customMotions = [];
+    this.customFreq = 0.5; // 자동 행동에서 직접 만든 동작이 뽑힐 확률 (끔 0 / 가끔 0.2 / 자주 0.5)
+    this.lastCustom = null; // 같은 동작이 연달아 나오지 않게
     this.setState('work');
   }
 
@@ -207,10 +209,16 @@ export class PetController {
   }
 
   nextAuto() {
-    const pool = [...AUTO_NEXT, ...this.customMotions.map((m) => [m, 1])];
-    const next = weighted(pool);
-    if (typeof next === 'string') this.setState(next);
-    else this.setState('custom', { motion: next });
+    // 직접 만든 동작은 개수와 상관없이 정한 확률로, 그 안에서는 균등하게 (⭐ 끈 동작 제외)
+    const mine = this.customMotions.filter((m) => m.auto !== false);
+    if (mine.length && Math.random() < this.customFreq) {
+      const pool = mine.length > 1 ? mine.filter((m) => m.name !== this.lastCustom) : mine;
+      const next = pool[Math.floor(Math.random() * pool.length)] ?? mine[0];
+      this.lastCustom = next.name;
+      this.setState('custom', { motion: next });
+      return;
+    }
+    this.setState(weighted(AUTO_NEXT));
   }
 
   update(dt) {
