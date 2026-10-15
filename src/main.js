@@ -1137,8 +1137,15 @@ function frame() {
     model.head.getWorldPosition(headWorld);
     headWorld.y += pet.state === 'aha' ? 19 : 12; // 전구가 떠 있으면 말풍선을 더 위로
     const p = toScreen(headWorld);
-    bubble.style.left = `${p.x}px`;
-    bubble.style.top = `${p.y}px`;
+    // 확대해서 머리 위 공간이 없거나 옆으로 벗어나면 화면 안으로 끌어온다
+    const m = 6;
+    const w = bubble.offsetWidth;
+    const h = bubble.offsetHeight;
+    const x = Math.min(Math.max(p.x, w / 2 + m), viewW - w / 2 - m);
+    const y = Math.min(Math.max(p.y, h + m + 4), viewH - m);
+    bubble.classList.toggle('clamped', Math.abs(x - p.x) > 1 || Math.abs(y - p.y) > 1);
+    bubble.style.left = `${x}px`;
+    bubble.style.top = `${y}px`;
   }
 }
 
