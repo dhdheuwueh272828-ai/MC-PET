@@ -6,6 +6,7 @@ import { THEMES, buildTheme, disposeTheme } from './themes.js';
 import { PetController, STATES, sanitizeMotion } from './pet.js';
 import { createPip } from './pip.js';
 import { parseYouTube, createMusic } from './music.js';
+import { createAnimal } from './animals.js';
 
 // Electron preload 가 노출하는 브리지 (Windows 데스크톱 펫 모드)
 const bridge = window.petBridge ?? null;
@@ -83,7 +84,7 @@ const model = new PlayerModel(createDefaultSkin());
 scene.add(model.root);
 
 // ── 꾸미기 (배경 · 책상 색 · 작업 도구 · 키보드/마우스 색) ──
-const DEFAULT_DECO = { theme: 'none', desk: DESK_COLORS[0][2], setup: 'laptop', keyboard: GEAR_COLORS[0], mouse: GEAR_COLORS[0] };
+const DEFAULT_DECO = { theme: 'none', desk: DESK_COLORS[0][2], setup: 'laptop', keyboard: GEAR_COLORS[0], mouse: GEAR_COLORS[0], animals: 'none' };
 let deco = { ...DEFAULT_DECO, ...store.json('deco', {}) };
 let theme = null;
 
@@ -95,6 +96,7 @@ function applyDeco(next, { save = true } = {}) {
   workspace.setSetup(deco.setup);
   workspace.setKeyboardColor(deco.keyboard);
   workspace.setMouseColor(deco.mouse);
+  setAnimals(deco.animals);
   if (save) store.set('deco', JSON.stringify(deco));
   pip?.invalidate();
   syncPipButton();
@@ -118,6 +120,38 @@ function setTheme(name) {
   hemi.intensity = k;
   sun.intensity = has ? theme.sun : 1.6;
   document.documentElement.classList.toggle('has-theme', has);
+}
+
+// ── 🐺🐈 동물 친구 (책상 옆 바닥의 흰 늑대 / 책상 위 검은 고양이) ──
+// 어느 배경·작업 도구에서도 가구와 겹치지 않고, 세로 화면·패널을 키워도 보이는 자리
+// (책상: x ±17, z 5~21 / 의자: z -5~6) → 늑대는 책상 앞 바닥, 고양이는 의자 오른쪽 바닥
+const ANIMAL_SPOTS = {
+  wolf: { pos: [-2, 0, 33], rotY: 0.6 },
+  cat: { pos: [21, 0, -3], rotY: 0.9 },
+};
+const ANIMAL_KINDS = { none: [], wolf: ['wolf'], cat: ['cat'], both: ['wolf', 'cat'] };
+let animals = [];
+function setAnimals(choice) {
+  const want = ANIMAL_KINDS[choice] ?? [];
+  if (animals.map((a) => a.kind).join() === want.join()) return;
+  for (const a of animals) {
+    scene.remove(a.root);
+    a.root.traverse((o) => {
+      o.geometry?.dispose();
+      for (const m of [o.material].flat()) {
+        m?.map?.dispose();
+        m?.dispose();
+      }
+    });
+  }
+  animals = want.map((kind) => {
+    const a = createAnimal(kind);
+    const { pos, rotY } = ANIMAL_SPOTS[kind];
+    a.root.position.set(...pos);
+    a.root.rotation.y = rotY;
+    scene.add(a.root);
+    return a;
+  });
 }
 
 let currentSkin = null;
@@ -222,9 +256,12 @@ function toast(msg) {
 
 // 쓰다듬을 때 머리 위로 하트
 const headWorldTmp = new THREE.Vector3();
-function spawnHearts() {
-  model.head.getWorldPosition(headWorldTmp);
-  headWorldTmp.y += 9;
+function spawnHearts(at) {
+  if (at) headWorldTmp.copy(at);
+  else {
+    model.head.getWorldPosition(headWorldTmp);
+    headWorldTmp.y += 9;
+  }
   const p = toScreen(headWorldTmp);
   const el = document.createElement('span');
   el.className = 'glyph heart';
@@ -408,9 +445,45 @@ function headHit(x, y) {
   return Math.hypot(x - c.x, y - c.y) < r;
 }
 
+// 동물을 눌렀나 (실제 모양으로 판정 — 캐릭터 머리 쓰다듬기보다 먼저 본다)
+const animalRay = new THREE.Raycaster();
+const animalNdc = new THREE.Vector2();
+function animalHit(x, y) {
+  if (!animals.length) return null;
+  animalNdc.set((x / viewW) * 2 - 1, -(y / viewH) * 2 + 1);
+  animalRay.setFromCamera(animalNdc, camera);
+  const hit = animalRay.intersectObjects(animals.map((a) => a.root), true)[0];
+  return hit ? (animals.find((a) => a.root.getObjectById(hit.object.id)) ?? null) : null;
+}
+
+const ANIMAL_LINES = {
+  wolf: ['멍멍이 귀여워 🐺', '착하다 착해~', '우리 늑대 최고!', '꼬리 흔드는 것 좀 봐!', '산책 갈까?', '뼈다귀 줄까? 🦴', '든든한 내 친구!', '털이 복슬복슬해', '좀비 오면 지켜 줘!', '같이 일하자 늑대야'],
+  cat: ['냥이 귀여워 🐈', '골골송 들린다~', '키보드 위엔 올라가지 마~', '눈이 반짝반짝해', '츄르 줄까? 🐟', '고양이는 크리퍼 천적이지!', '털이 보들보들해', '오늘도 귀엽네', '같이 낮잠 잘래?', '꾹꾹이 해 줘~'],
+};
+const animalLine = (kind) => ANIMAL_LINES[kind][Math.floor(Math.random() * ANIMAL_LINES[kind].length)];
+let lastAnimalAiAt = 0;
+function patAnimal(a) {
+  a.pat();
+  for (let i = 0; i < 3; i++) setTimeout(() => spawnHearts(a.anchor), i * 140);
+  // 캐릭터가 동물 쪽을 보며 한마디 (AI 를 켜 두면 가끔 AI 대사)
+  const p = toScreen(a.anchor);
+  pet.look((p.x / viewW) * 2 - 1, -(p.y / viewH) * 2 + 1);
+  const now = performance.now() / 1000;
+  const name = a.kind === 'wolf' ? '흰 늑대' : '검은 고양이';
+  if (aiOnline() && aiLines() !== 'off' && !aiState.busy && now - lastAnimalAiAt > 40 && Math.random() < 0.5) {
+    lastAnimalAiAt = now;
+    aiState.busy = true;
+    getAI()
+      .then((ai) => ai.line(aiContext(`주인이 내 옆의 ${name}를 쓰다듬어 줬어. ${name}에 대해 한마디 해`)))
+      .then((text) => say(text), () => say(animalLine(a.kind)))
+      .finally(() => (aiState.busy = false));
+  } else say(animalLine(a.kind));
+}
+
 canvas.addEventListener('pointerdown', (e) => {
   if (e.button !== 0) return;
-  press = { x: e.screenX, y: e.screenY, moved: false, long: false, onHead: headHit(e.clientX, e.clientY), rub: 0, lx: e.clientX, ly: e.clientY };
+  const animal = animalHit(e.clientX, e.clientY);
+  press = { x: e.screenX, y: e.screenY, moved: false, long: false, onHead: !animal && headHit(e.clientX, e.clientY), animal, rub: 0, lx: e.clientX, ly: e.clientY };
   // 모바일: 길게 누르면 메뉴(패널) 열기/닫기
   if (!desktop) {
     clearTimeout(longPressTimer);
@@ -451,7 +524,10 @@ canvas.addEventListener('pointerup', () => {
   if (!press) return;
   clearTimeout(longPressTimer);
   if (desktop && !press.onHead) bridge.dragEnd();
-  if (!press.moved && !press.long) pet.poke();
+  if (!press.moved && !press.long) {
+    if (press.animal) patAnimal(press.animal);
+    else pet.poke();
+  }
   press = null;
 });
 canvas.addEventListener('pointercancel', () => {
@@ -641,6 +717,7 @@ for (const [id, label] of THEMES) {
   themeBox.appendChild(b);
 }
 for (const b of $('setup').querySelectorAll('button')) b.onclick = () => applyDeco({ ...deco, setup: b.dataset.v });
+for (const b of $('animals').querySelectorAll('button')) b.onclick = () => applyDeco({ ...deco, animals: b.dataset.v });
 
 function swatchRow(el, colors, key) {
   for (const [hex, label] of colors) {
@@ -667,6 +744,7 @@ swatchRow($('mouse-colors'), GEAR_COLORS.map((hex) => [hex]), 'mouse');
 function syncDeco() {
   for (const b of themeBox.children) b.classList.toggle('on', b.dataset.v === deco.theme);
   for (const b of $('setup').children) b.classList.toggle('on', b.dataset.v === deco.setup);
+  for (const b of $('animals').children) b.classList.toggle('on', b.dataset.v === deco.animals);
   for (const [id, key] of [['desk-colors', 'desk'], ['kb-colors', 'keyboard'], ['mouse-colors', 'mouse']]) {
     for (const el of $(id).children) {
       if (el.tagName === 'INPUT') el.value = deco[key];
@@ -1528,6 +1606,7 @@ function frame() {
 
   workspace.screenTexture.userData.tick(typing * dt * 40);
   theme?.update?.(dt);
+  for (const a of animals) a.update(dt, { sleeping: pet.state === 'sleep' });
   screenLight.intensity = 55 + Math.sin(clock.elapsedTime * 7) * 4 * typing;
 
   glyphAcc += dt * typing;
