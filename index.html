@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#2b2f45" />
+    <title>Minecraft Work Pet</title>
+    <link rel="icon" href="./icon.png" />
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="pet-canvas"></canvas>
+      <div id="particles"></div>
+      <div id="bubble" hidden></div>
+    </div>
+
+    <!-- 모바일/웹 전용 컨트롤 (Windows 데스크톱 펫은 우클릭 메뉴 사용) -->
+    <div id="panel">
+      <div class="row">
+        <button id="btn-skin" class="primary">🎨 스킨 불러오기</button>
+        <button id="btn-name">👤 닉네임</button>
+        <button id="btn-reset" title="기본 스킨">↺</button>
+      </div>
+      <div class="row">
+        <span class="label">팔</span>
+        <div class="seg" id="arms">
+          <button data-v="auto">자동</button>
+          <button data-v="classic">클래식</button>
+          <button data-v="slim">슬림</button>
+        </div>
+        <span id="skin-info"></span>
+      </div>
+      <div class="row chips" id="modes"></div>
+    </div>
+
+    <input type="file" id="skin-file" accept="image/png,image/*" hidden />
+    <div id="toast" hidden></div>
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

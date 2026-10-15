@@ -1,2 +1,70 @@
-# MC-PET
-마크 펫
+# ⛏️ MC-PET (Minecraft Work Pet)
+
+내 마인크래프트 스킨을 입은 캐릭터가 책상에 앉아 **노트북으로 일하는** 펫입니다.
+**Windows 데스크톱 · Android · iOS**를 하나의 코드베이스로 지원합니다.
+
+| 지원 스킨 | 설명 |
+|---|---|
+| **64×32** | 구버전(1.7 이하) 스킨. 왼팔·왼다리는 오른쪽을 좌우 반전해 자동 생성 |
+| **64×64** | 1.8+ 표준 스킨. 오버레이(모자/자켓/소매/바지) 지원, **슬림(Alex) 팔 자동 감지** |
+| **128×128** | HD 스킨 (64×64 레이아웃의 2배). 256×256 등 64의 배수도 동작 |
+
+## 펫이 하는 일
+- ⌨️ **작업**: 타이핑하고 노트북 화면에 코드가 스크롤되며 `{ }` `</>` 글자가 튀어나옵니다
+- 🤔 고민 · 🙆 스트레칭 · ☕ 커피 마시기 · 💤 낮잠: 자동 모드에서 랜덤하게 나옵니다
+- 👋 클릭(탭)하면 이쪽을 보고 손을 흔들어요
+- 👀 마우스 커서(터치)를 따라 고개를 돌립니다
+
+## 플랫폼별 기능
+
+| | Windows | Android | iOS |
+|---|---|---|---|
+| 형태 | 바탕화면 위에 떠 있는 **투명 창** (항상 위) | 앱 | 앱 |
+| 스킨 변경 | 우클릭 메뉴 / PNG 드래그&드롭 | 파일 선택 / 닉네임 | 파일 선택 / 닉네임 |
+| 기타 | 드래그로 이동, 크기 3단계, 투명 부분 클릭 통과, 시작 시 자동 실행 | | |
+
+> iOS는 다른 앱 위에 띄우는 기능을 운영체제가 허용하지 않아 앱 안에서만 동작합니다.
+> Android 의 다른 앱 위 플로팅 펫은 네이티브 오버레이 서비스가 필요해 이번 버전에는 포함되지 않았습니다.
+
+## 설치 파일 받기 (GitHub Actions)
+저장소에 push 하거나 Actions 탭에서 **Minecraft Work Pet builds → Run workflow** 를 누르면
+클라우드에서 세 플랫폼이 빌드되고, 실행 결과 페이지의 **Artifacts** 에서 받을 수 있습니다.
+
+- `minecraft-work-pet-windows` → `Minecraft Work Pet Setup x.y.z.exe`(설치판), `Minecraft Work Pet x.y.z.exe`(포터블)
+  - 코드 서명이 없어서 처음 실행 시 SmartScreen 경고가 뜨면 **추가 정보 → 실행** 을 누르세요.
+- `minecraft-work-pet-android` → `app-debug.apk` (휴대폰에서 "출처를 알 수 없는 앱" 설치 허용 필요)
+- `minecraft-work-pet-ios-unsigned` → `MinecraftWorkPet-unsigned.ipa`
+  - 서명되지 않은 파일이라 **Sideloadly**(Windows/Mac) 나 AltStore 로 본인 Apple ID 로 서명해서 설치합니다.
+  - 무료 Apple ID 는 7일마다 재서명이 필요합니다. App Store 배포에는 Apple Developer 계정($99/년)이 필요합니다.
+
+## 직접 빌드하기
+Node.js 22 이상이 필요합니다.
+
+```bash
+cd MC-PET
+npm install
+
+npm run dev          # 브라우저에서 미리보기 (http://localhost:5173)
+npm run electron     # Windows 데스크톱 펫 실행
+npm run dist:win     # Windows 설치 파일 → release/
+
+npm run android      # Android Studio 로 열기 (JDK 21 + Android SDK 필요)
+npm run ios          # Xcode 로 열기 (Mac 필요)
+```
+
+## 구조
+```
+MC-PET/
+├─ src/
+│  ├─ skin.js     스킨 로드·정규화 (64×32 변환, HD, 슬림 감지, 기본 스킨)
+│  ├─ model.js    마인크래프트 플레이어 3D 모델 (Three.js, 스킨 UV 매핑, 오버레이)
+│  ├─ scene.js    책상·의자·노트북(코드 화면)·커피잔·화분
+│  ├─ pet.js      행동 상태 머신과 포즈 애니메이션
+│  └─ main.js     렌더링, 입력, 말풍선, 플랫폼 브리지
+├─ electron/      Windows 투명 창, 우클릭 메뉴, 드래그 이동
+├─ android/ ios/  Capacitor 네이티브 프로젝트
+└─ scripts/make_icon.py  앱 아이콘 생성
+```
+
+기본 캐릭터(헤드폰 쓴 개발자)는 이 프로젝트용으로 직접 그린 스킨이라 저작권 걱정 없이 쓸 수 있습니다.
+닉네임으로 불러오기는 `mc-heads.net` 의 공개 스킨 API 를 사용합니다.

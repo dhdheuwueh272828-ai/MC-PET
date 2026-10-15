@@ -1,0 +1,327 @@
+import * as THREE from 'three';
+import { loadImage, normalizeSkin, readFileAsDataURL, createDefaultSkin } from './skin.js';
+import { PlayerModel } from './model.js';
+import { buildWorkspace } from './scene.js';
+import { PetController, STATES } from './pet.js';
+
+// Electron preload 가 노출하는 브리지 (Windows 데스크톱 펫 모드)
+const bridge = window.petBridge ?? null;
+const desktop = !!bridge;
+if (desktop) document.documentElement.classList.add('desktop');
+
+const $ = (id) => document.getElementById(id);
+const canvas = $('pet-canvas');
+const bubble = $('bubble');
+const particles = $('particles');
+
+// ── 설정 (기기별로 저장되는 편의 설정) ──
+const store = {
+  get(key, fallback) {
+    try {
+      return localStorage.getItem('mcpet.' + key) ?? fallback;
+    } catch {
+      return fallback;
+    }
+  },
+  set(key, value) {
+    try {
+      if (value == null) localStorage.removeItem('mcpet.' + key);
+      else localStorage.setItem('mcpet.' + key, value);
+    } catch {
+      /* 저장 불가 환경 무시 */
+    }
+  },
+};
+
+// ── 렌더러 / 씬 ──
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  alpha: true,
+  preserveDrawingBuffer: desktop, // 데스크톱: 픽셀 투명도로 클릭 통과 판정
+});
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setClearColor(0x000000, 0);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, 1, 1, 500);
+const LOOK_AT = new THREE.Vector3(0.5, 17, 7);
+const CAM_DIR = new THREE.Vector3(0.62, 0.42, 0.66).normalize();
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a7a9a, 1.7));
+const sun = new THREE.DirectionalLight(0xffffff, 1.6);
+sun.position.set(25, 60, 35);
+sun.castShadow = true;
+sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -35, right: 35, top: 35, bottom: -35, near: 1, far: 150 });
+scene.add(sun);
+// 노트북 화면 빛
+const screenLight = new THREE.PointLight(0x7fd4ff, 60, 26, 1.6);
+screenLight.position.set(0, 22, 12);
+scene.add(screenLight);
+
+const workspace = buildWorkspace();
+scene.add(workspace.group);
+
+const model = new PlayerModel(createDefaultSkin());
+scene.add(model.root);
+
+let currentSkin = null;
+let armsMode = store.get('arms', 'auto');
+
+const pet = new PetController(model, workspace, { onSay: say });
+
+function applySkin(skin) {
+  currentSkin = skin;
+  const slim = armsMode === 'auto' ? skin.slim : armsMode === 'slim';
+  // 컵을 들고 있는 도중이면 팔을 다시 만들기 전에 책상에 내려놓는다
+  pet.attachMug(false);
+  model.setSkin(skin, slim);
+  $('skin-info').textContent = `${skin.width}×${skin.height}${skin.legacy ? ' (구버전)' : ''} · ${slim ? '슬림' : '클래식'}`;
+}
+
+async function loadSkinFromURL(url, { save = true } = {}) {
+  const img = await loadImage(url);
+  const skin = normalizeSkin(img);
+  applySkin(skin);
+  if (save && url.startsWith('data:')) store.set('skin', url);
+  return skin;
+}
+
+async function loadSkinFromFile(file) {
+  try {
+    const dataUrl = await readFileAsDataURL(file);
+    const skin = await loadSkinFromURL(dataUrl);
+    toast(`스킨 적용 완료 (${skin.width}×${skin.height})`);
+  } catch (e) {
+    toast(e.message);
+  }
+}
+
+async function loadSkinByName(name) {
+  name = name.trim();
+  if (!/^[A-Za-z0-9_]{2,16}$/.test(name)) return toast('마인크래프트 닉네임 형식이 아니에요.');
+  try {
+    const img = await loadImage(`https://mc-heads.net/skin/${encodeURIComponent(name)}`);
+    // 저장을 위해 data URL 로 변환
+    const c = document.createElement('canvas');
+    c.width = img.naturalWidth;
+    c.height = img.naturalHeight;
+    c.getContext('2d').drawImage(img, 0, 0);
+    await loadSkinFromURL(c.toDataURL('image/png'));
+    toast(`${name} 스킨 적용 완료`);
+  } catch {
+    toast('스킨을 가져오지 못했어요. 네트워크 또는 닉네임을 확인해 주세요.');
+  }
+}
+
+function resetSkin() {
+  store.set('skin', null);
+  applySkin(createDefaultSkin());
+  toast('기본 스킨으로 돌아왔어요');
+}
+
+function setArms(mode) {
+  armsMode = mode;
+  store.set('arms', mode);
+  if (currentSkin) applySkin(currentSkin);
+  syncPanel();
+}
+
+function setMode(mode) {
+  store.set('mode', mode);
+  if (mode === 'auto') {
+    pet.setAuto(true);
+    pet.setState('work');
+  } else {
+    pet.setState(mode, { manual: true });
+  }
+  syncPanel();
+}
+
+// ── 말풍선 / 파티클 / 토스트 ──
+let bubbleTimer = 0;
+function say(text) {
+  bubble.textContent = text;
+  bubble.hidden = false;
+  bubble.style.animation = 'none';
+  void bubble.offsetWidth;
+  bubble.style.animation = '';
+  clearTimeout(bubbleTimer);
+  bubbleTimer = setTimeout(() => (bubble.hidden = true), pet.state === 'sleep' ? 6000 : 2600);
+}
+
+let toastTimer = 0;
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.hidden = true), 2600);
+}
+
+const GLYPHS = ['{ }', '</>', ';', '01', '=>', '()', '#', '++', '[ ]', '&&'];
+function spawnGlyph(screen) {
+  const el = document.createElement('span');
+  el.className = 'glyph';
+  el.textContent = GLYPHS[Math.floor(Math.random() * GLYPHS.length)];
+  el.style.left = `${screen.x + (Math.random() - 0.5) * 30}px`;
+  el.style.top = `${screen.y}px`;
+  el.style.setProperty('--dx', `${(Math.random() - 0.5) * 30}px`);
+  particles.appendChild(el);
+  setTimeout(() => el.remove(), 1500);
+}
+
+// ── 화면 크기 ──
+let viewW = 1;
+let viewH = 1;
+function resize() {
+  viewW = window.innerWidth;
+  viewH = window.innerHeight;
+  renderer.setSize(viewW, viewH, false);
+  camera.aspect = viewW / viewH;
+  // 세로 화면(모바일)에서는 더 멀리서 비추고, 하단 패널 공간만큼 시점을 내린다
+  const portrait = camera.aspect < 1;
+  const dist = desktop ? 108 : portrait ? 76 + 50 / camera.aspect : 120;
+  const target = LOOK_AT.clone();
+  if (!desktop) target.y -= portrait ? 9 : 6;
+  camera.position.copy(target).addScaledVector(CAM_DIR, dist);
+  camera.lookAt(target);
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', resize);
+resize();
+
+const tmp = new THREE.Vector3();
+function toScreen(v) {
+  tmp.copy(v).project(camera);
+  return { x: (tmp.x * 0.5 + 0.5) * viewW, y: (-tmp.y * 0.5 + 0.5) * viewH };
+}
+
+// ── 입력: 탭/클릭 = 인사, 드래그 = (데스크톱) 창 이동, 우클릭 = 메뉴 ──
+let press = null;
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.button !== 0) return;
+  press = { x: e.screenX, y: e.screenY, moved: false };
+  canvas.setPointerCapture(e.pointerId);
+  if (desktop) bridge.dragStart();
+});
+canvas.addEventListener('pointermove', (e) => {
+  pet.look((e.clientX / viewW) * 2 - 1, -(e.clientY / viewH) * 2 + 1);
+  if (desktop) updateClickThrough(e.clientX, e.clientY);
+  if (!press) return;
+  if (Math.hypot(e.screenX - press.x, e.screenY - press.y) > 4) press.moved = true;
+  if (desktop && press.moved) bridge.dragMove();
+});
+canvas.addEventListener('pointerup', () => {
+  if (!press) return;
+  if (desktop) bridge.dragEnd();
+  if (!press.moved) pet.poke();
+  press = null;
+});
+canvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  if (desktop) bridge.showMenu({ arms: armsMode, mode: store.get('mode', 'auto') });
+});
+
+// 데스크톱: 투명한 픽셀 위에서는 클릭이 뒤의 창으로 통과되게
+let ignoring = false;
+function updateClickThrough(x, y) {
+  if (press) return;
+  const gl = renderer.getContext();
+  const px = new Uint8Array(4);
+  const dpr = renderer.getPixelRatio();
+  gl.readPixels(Math.floor(x * dpr), Math.floor((viewH - y) * dpr), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+  const transparent = px[3] < 16;
+  if (transparent !== ignoring) {
+    ignoring = transparent;
+    bridge.setIgnoreMouse(transparent);
+  }
+}
+
+if (desktop) {
+  bridge.onMenuAction(({ type, value }) => {
+    if (type === 'skin') loadSkinFromURL(value).then((s) => toast(`스킨 적용 (${s.width}×${s.height})`), (e) => toast(e.message));
+    else if (type === 'reset-skin') resetSkin();
+    else if (type === 'arms') setArms(value);
+    else if (type === 'mode') setMode(value);
+  });
+  // 커서가 창 밖에 있어도 고개를 돌려 쳐다보기
+  bridge.onCursor?.(({ x, y }) => pet.look((x / viewW) * 2 - 1, -(y / viewH) * 2 + 1));
+}
+
+// ── 모바일/웹 패널 ──
+const fileInput = $('skin-file');
+$('btn-skin').onclick = () => fileInput.click();
+fileInput.onchange = () => {
+  if (fileInput.files[0]) loadSkinFromFile(fileInput.files[0]);
+  fileInput.value = '';
+};
+$('btn-name').onclick = () => {
+  const name = prompt('마인크래프트 Java 닉네임을 입력하세요');
+  if (name) loadSkinByName(name);
+};
+$('btn-reset').onclick = resetSkin;
+for (const b of $('arms').querySelectorAll('button')) b.onclick = () => setArms(b.dataset.v);
+
+const modes = $('modes');
+for (const [key, label] of [['auto', '🔁 자동'], ...Object.entries(STATES).filter(([k]) => k !== 'wave').map(([k, s]) => [k, s.label])]) {
+  const b = document.createElement('button');
+  b.dataset.v = key;
+  b.textContent = label;
+  b.onclick = () => setMode(key);
+  modes.appendChild(b);
+}
+
+function syncPanel() {
+  for (const b of $('arms').querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === armsMode);
+  const mode = store.get('mode', 'auto');
+  for (const b of modes.querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === mode);
+}
+
+// 드래그&드롭으로 스킨 적용 (PC 브라우저 / Windows)
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => {
+  e.preventDefault();
+  const file = e.dataTransfer?.files?.[0];
+  if (file) loadSkinFromFile(file);
+});
+
+// ── 시작 ──
+const saved = store.get('skin', null);
+if (saved) loadSkinFromURL(saved, { save: false }).catch(() => applySkin(createDefaultSkin()));
+else applySkin(createDefaultSkin());
+const savedMode = store.get('mode', 'auto');
+if (savedMode !== 'auto' && STATES[savedMode]) pet.setState(savedMode, { manual: true });
+syncPanel();
+
+const clock = new THREE.Clock();
+const headWorld = new THREE.Vector3();
+const laptopPoint = new THREE.Vector3(0, 22, 13);
+let glyphAcc = 0;
+
+renderer.setAnimationLoop(() => {
+  const dt = Math.min(clock.getDelta(), 0.1);
+  const typing = pet.update(dt);
+
+  workspace.screenTexture.userData.tick(typing * dt * 40);
+  screenLight.intensity = 55 + Math.sin(clock.elapsedTime * 7) * 4 * typing;
+
+  glyphAcc += dt * typing;
+  if (glyphAcc > 0.45) {
+    glyphAcc = 0;
+    spawnGlyph(toScreen(laptopPoint));
+  }
+
+  renderer.render(scene, camera);
+
+  if (!bubble.hidden) {
+    model.head.getWorldPosition(headWorld);
+    headWorld.y += 12;
+    const p = toScreen(headWorld);
+    bubble.style.left = `${p.x}px`;
+    bubble.style.top = `${p.y}px`;
+  }
+});
