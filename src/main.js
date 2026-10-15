@@ -1214,10 +1214,11 @@ $('btn-ai-key-del').onclick = () => {
 // ── 🎭 캐릭터 성격 (Gemini/Claude 가 대사·대화·동작에 반영) ──
 const PERSONA_TRAITS_MAX = 1000; // 성격·말투 최대 글자 수 (index.html 의 maxlength 와 같게)
 let persona = { name: '', traits: '', ...store.json('persona', {}) };
-function setPersona(p) {
+function setPersona(p, { announce = false } = {}) {
   persona = { name: String(p?.name ?? '').slice(0, 20), traits: String(p?.traits ?? '').slice(0, PERSONA_TRAITS_MAX) };
   store.set('persona', JSON.stringify(persona));
   syncPersona();
+  refreshTapPack({ generate: true, announce }); // 새 성격에 맞는 터치 대사
 }
 function syncPersona() {
   const s = [persona.name, persona.traits].filter(Boolean).join(' · ');
@@ -1227,7 +1228,7 @@ $('btn-persona').onclick = async () => {
   const out = await openModal({
     label: '🎭 캐릭터 이름',
     value: persona.name,
-    hint: '정한 성격과 말투로 Gemini/Claude 가 대사를 하고, 말 걸기에 대답하고, 새 동작을 만들어요. (🆓 내장 모드는 이름만 써요)',
+    hint: '정한 성격과 말투로 Gemini/Claude 가 대사를 하고, 말 걸기에 대답하고, 새 동작을 만들어요. (🆓 내장 모드는 츤데레·존댓말·고양이·강아지·시크·활발·소심·나른·귀여움 같은 낱말로 터치 대사를 골라요)',
     area: {
       label: '성격 · 말투 · 좋아하는 것',
       value: persona.traits,
@@ -1236,7 +1237,7 @@ $('btn-persona').onclick = async () => {
     paste: false,
   });
   if (!out) return;
-  setPersona({ name: out.value.trim(), traits: out.area.trim() });
+  setPersona({ name: out.value.trim(), traits: out.area.trim() }, { announce: true });
   toast(persona.name || persona.traits ? `🎭 ${persona.name || '캐릭터'} 성격 저장!` : '기본 성격으로 돌아왔어요');
   // 바로 새 성격으로 한마디 (온라인 AI 를 쓸 수 있을 때)
   if (aiOnline() && (persona.name || persona.traits)) {
@@ -1246,6 +1247,88 @@ $('btn-persona').onclick = async () => {
   } else if (persona.name) say(`나는 ${persona.name}! 잘 부탁해 😊`);
 };
 syncPersona();
+
+// ── 👆 터치 대사: 정한 성격대로 (AI 로 20개를 만들어 두고, 키가 없으면 내장 성격 묶음) ──
+let tapPack = null; // { tap, pet, spam, src: 'ai' | 'builtin', label }
+let tapGenBusy = false;
+const bags = {};
+const personaSig = () => `${persona.name}\n${persona.traits}`;
+const hasPersona = () => !!(persona.name || persona.traits);
+
+// 섞어 놓은 순서대로 꺼내 쓰고, 다 쓰면 다시 섞는다 (같은 말이 연달아 나오지 않게)
+function packLine(kind) {
+  const list = tapPack?.[kind];
+  if (!list?.length) return null;
+  if (!bags[kind]?.length) {
+    bags[kind] = [...list];
+    for (let i = bags[kind].length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [bags[kind][i], bags[kind][j]] = [bags[kind][j], bags[kind][i]];
+    }
+  }
+  return bags[kind].pop().replaceAll('{이름}', persona.name || '나');
+}
+pet.tapLine = packLine;
+
+// AI 가 만든 대사는 성격별로 기억해 둔다 (프리셋을 바꿔 가며 써도 다시 만들 필요 없게, 최근 8개)
+function savedPacks() {
+  const all = store.json('personaLines', {});
+  return all && typeof all === 'object' && !Array.isArray(all) ? all : {};
+}
+
+function setTapPack(pack) {
+  tapPack = pack;
+  for (const k of Object.keys(bags)) delete bags[k];
+  syncTapInfo();
+}
+
+function syncTapInfo() {
+  let text = '👆 터치 대사: 기본';
+  if (tapPack?.src === 'ai') text = `👆 터치 대사: AI 가 성격대로 만든 ${tapPack.tap.length}개`;
+  else if (tapPack?.src === 'builtin') text = `👆 터치 대사: 내장 ${tapPack.label} 말투 ${tapPack.tap.length}개`;
+  else if (hasPersona()) text = '👆 터치 대사: 기본 (🔑 키를 넣으면 성격대로 20개를 만들어요)';
+  $('tap-info').textContent = text;
+  $('btn-tap-lines').hidden = !hasPersona();
+}
+
+async function refreshTapPack({ generate = false, announce = false } = {}) {
+  if (!hasPersona()) return setTapPack(null);
+  const saved = savedPacks()[personaSig()];
+  if (saved?.tap?.length) return setTapPack({ ...saved, src: 'ai' });
+  setTapPack((await getOffline()).personaPack(persona));
+  if (generate && aiOnline()) await generateTapLines({ announce });
+}
+
+async function generateTapLines({ announce = false } = {}) {
+  if (!hasPersona()) return toast('먼저 🎭 성격을 정해 주세요');
+  if (!aiOnline()) {
+    if (announce) toast('성격대로 만들려면 🔑 Gemini 또는 Claude 키가 필요해요');
+    return;
+  }
+  if (tapGenBusy) return;
+  tapGenBusy = true;
+  if (announce) toast('🎭 성격에 맞는 터치 대사 만드는 중… (10~30초)');
+  const sig = personaSig();
+  try {
+    const out = await (await getAI()).tapLines();
+    if (sig !== personaSig()) return; // 그사이 성격이 바뀜
+    const clean = (a, n) => [...new Set((a ?? []).map((s) => String(s).trim()).filter((s) => s && s.length <= 40))].slice(0, n);
+    const pack = { tap: clean(out.tap, 30), pet: clean(out.pet, 15), spam: clean(out.spam, 10) };
+    if (pack.tap.length < 5) throw new Error('대사를 충분히 만들지 못했어요. 다시 해 볼까요?');
+    const all = savedPacks();
+    delete all[sig];
+    const entries = [...Object.entries(all), [sig, pack]].slice(-8);
+    if (!store.set('personaLines', JSON.stringify(Object.fromEntries(entries)))) toast('저장 공간이 부족해요');
+    setTapPack({ ...pack, src: 'ai' });
+    if (announce) toast(`🎭 터치 대사 ${pack.tap.length}개 완성! 캐릭터를 톡 눌러 보세요`);
+  } catch (e) {
+    if (announce) onAIError(e);
+  } finally {
+    tapGenBusy = false;
+  }
+}
+$('btn-tap-lines').onclick = () => generateTapLines({ announce: true });
+refreshTapPack({ generate: true });
 
 // 동작 이름(상태 또는 custom N, dance) 실행
 async function playMotionId(id) {

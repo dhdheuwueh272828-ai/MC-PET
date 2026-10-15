@@ -188,6 +188,23 @@ export function createAI({ getProvider, getKey, getModel, getPersona = () => nul
       return { line: out.line.trim(), motion: out.motion };
     },
 
+    /** 성격대로 터치·쓰다듬기 대사를 한꺼번에 만들어 둔다 (탭할 때마다 AI 를 부르지 않도록) */
+    async tapLines() {
+      const Schema = z.object({
+        tap: z.array(z.string()).describe('주인이 화면 속 나를 손가락으로 톡 건드렸을 때 할 대사 20개 (모두 다르게)'),
+        pet: z.array(z.string()).describe('주인이 머리를 쓰다듬어 줄 때 할 대사 8개'),
+        spam: z.array(z.string()).describe('주인이 나를 연달아 계속 눌러댈 때 할 대사 5개'),
+      });
+      return ask(
+        personaPrompt(getPersona()),
+        '주인이 화면 속의 나를 톡 건드리거나 쓰다듬을 때 할 대사를 미리 만들어 두려고 해. ' +
+          '캐릭터의 성격·말투·좋아하는 것이 확실히 드러나게 하고, 인사·놀람·장난·응원·걱정·일 이야기·좋아하는 것·마크 이야기 등 상황을 골고루 섞어. ' +
+          '각 대사는 25자 이내의 한 문장이고 서로 겹치지 않게.',
+        Schema,
+        'low',
+      );
+    },
+
     /** 설명대로 새 동작(키프레임) 만들기 */
     async motion(description) {
       return ask(
