@@ -1,0 +1,66 @@
+{
+  "name": "minecraft-work-pet",
+  "version": "1.0.0",
+  "description": "마인크래프트 스킨으로 작업하는 모습의 데스크톱/모바일 펫",
+  "main": "electron/main.cjs",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "electron": "npm run build && electron .",
+    "dist:win": "npm run build && electron-builder --win --publish never",
+    "cap:sync": "npm run build && cap sync",
+    "android": "npm run cap:sync && cap open android",
+    "ios": "npm run cap:sync && cap open ios",
+    "icon": "python3 scripts/make_icon.py"
+  },
+  "dependencies": {
+    "@capacitor/android": "8.5.2",
+    "@capacitor/core": "8.5.2",
+    "@capacitor/ios": "8.5.2",
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.2",
+    "electron": "44.5.0",
+    "electron-builder": "26.16.1",
+    "vite": "8.3.1"
+  },
+  "build": {
+    "appId": "com.minecraftworkpet.app",
+    "productName": "Minecraft Work Pet",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "author": "minecraft-work-pet"
+}

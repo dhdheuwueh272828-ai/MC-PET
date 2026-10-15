@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Minecraft Work Pet</string>
+    <string name="title_activity_main">Minecraft Work Pet</string>
+    <string name="package_name">com.minecraftworkpet.app</string>
+    <string name="custom_url_scheme">com.minecraftworkpet.app</string>
+</resources>
