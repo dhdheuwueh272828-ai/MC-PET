@@ -686,8 +686,11 @@ pip = createPip({
 syncPipButton();
 startLoop(window);
 
+$('build-info').textContent = `버전 ${__BUILD__}`;
+
 // ── 웹 앱(PWA): 오프라인 캐시 ──
 const nativeShell = desktop || window.Capacitor?.isNativePlatform?.();
 if (!nativeShell && 'serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('./sw.js').catch(() => {});
+  // updateViaCache: 'none' — 서비스 워커 파일도 HTTP 캐시 없이 매번 새로 확인
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).catch(() => {});
 }
