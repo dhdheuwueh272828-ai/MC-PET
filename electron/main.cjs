@@ -1,5 +1,5 @@
 // Windows 데스크톱 펫: 투명·프레임 없는·항상 위 창
-const { app, BrowserWindow, Menu, ipcMain, dialog, screen, shell } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, screen, shell, session } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -216,10 +216,24 @@ ipcMain.on('pet:ignore-mouse', (_e, ignore) => {
   win?.setIgnoreMouseEvents(ignore, { forward: true });
 });
 
+// 🎵 유튜브 배경음: file:// 로 연 페이지는 Referer 가 없어 유튜브 플레이어가 오류(153)를 낸다.
+// 같은 앱의 웹 버전 주소를 Referer 로 알려 준다 (유튜브 요청에만)
+function allowYouTubeEmbeds() {
+  const filter = { urls: ['https://www.youtube.com/*', 'https://www.youtube-nocookie.com/*'] };
+  session.defaultSession.webRequest.onBeforeSendHeaders(filter, (details, callback) => {
+    const headers = details.requestHeaders;
+    if (!headers.Referer) headers.Referer = 'https://sunsaai.github.io/MC-PET/';
+    callback({ requestHeaders: headers });
+  });
+}
+
 if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', () => win?.show());
-  app.whenReady().then(createWindow);
+  app.whenReady().then(() => {
+    allowYouTubeEmbeds();
+    createWindow();
+  });
   app.on('window-all-closed', () => app.quit());
 }

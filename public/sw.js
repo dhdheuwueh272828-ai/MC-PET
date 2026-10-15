@@ -6,6 +6,7 @@ self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
+  // 다른 사이트(유튜브 배경음, AI 서버 등) 요청은 건드리지도, 캐시하지도 않는다
   if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return;
   // 페이지(HTML)는 브라우저 HTTP 캐시(GitHub Pages 는 10분)를 건너뛰고 항상 서버에 새 버전을 확인한다.
   // 그래야 업데이트 직후 앱을 다시 열면 바로 새 화면이 나온다. (나머지 파일은 이름에 해시가 붙어 있어 그대로 둔다)
