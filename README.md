@@ -24,6 +24,7 @@
 | ✨ Gemini (기본) | 무료 등급 | [Google AI Studio](https://aistudio.google.com/apikey) 무료 키. 한도에 걸리면 10분간 자동으로 내장 모드 |
 | Claude | 유료 | [Claude Console](https://console.anthropic.com/settings/keys) 키. Opus 5.5 / Haiku 5.5(저렴) |
 
+- **🎭 캐릭터 성격**: 이름과 성격·말투·좋아하는 것을 적으면 Gemini/Claude 가 그 캐릭터로 대사·대답·동작을 만들어요 (프리셋에도 함께 저장)
 - **AI 대사**: 끔 / 가끔(5분, 기본) / 자주(1분)
 - **💬 말 걸기**: 대답 + 어울리는 동작
 - **✨ 새 동작 만들기**: "만세 세 번 하고 박수", "신나게 춤추기" → 새 동작으로 저장, 자동 모드에서도 가끔 나와요
