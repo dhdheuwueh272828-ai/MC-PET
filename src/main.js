@@ -265,6 +265,22 @@ function setPanelOpen(open) {
 
 let desktopPanel = false; // Windows 펫에서 꾸미기 창을 연 상태
 
+// 🔍 캐릭터 확대: 1 = 책상 전체, 3 = 얼굴·상체를 크게
+const ZOOM_MIN = 1;
+const ZOOM_MAX = 3;
+const HEAD_FOCUS = new THREE.Vector3(0, 27.5, 2);
+let zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Number(store.get('zoom', 1)) || 1));
+let zoomSaveTimer = 0;
+function setZoom(z, { save = true } = {}) {
+  zoom = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, z));
+  updateCamera();
+  syncZoom();
+  if (save) {
+    clearTimeout(zoomSaveTimer);
+    zoomSaveTimer = setTimeout(() => store.set('zoom', zoom.toFixed(2)), 300);
+  }
+}
+
 function updateCamera() {
   const portrait = camera.aspect < 1;
   const showPanel = desktop ? desktopPanel : panelOpen;
@@ -278,6 +294,10 @@ function updateCamera() {
   if (showPanel) target.y -= portrait ? 9 : 6;
   else if (!desktop) target.y -= portrait ? 3 : 4;
   if (showPanel && desktop) target.y -= 8;
+  // 확대할수록 얼굴 쪽으로 다가간다 (패널 높이 보정은 유지)
+  const k = (zoom - 1) / (ZOOM_MAX - 1);
+  target.lerp(HEAD_FOCUS.clone().setY(HEAD_FOCUS.y + (target.y - LOOK_AT.y) * 0.4), k);
+  dist /= Math.pow(zoom, 0.85);
   camera.position.copy(target).addScaledVector(CAM_DIR, dist);
   camera.lookAt(target);
   camera.updateProjectionMatrix();
@@ -332,7 +352,11 @@ canvas.addEventListener('pointerdown', (e) => {
       setPanelOpen(!panelOpen);
     }, 550);
   }
-  canvas.setPointerCapture(e.pointerId);
+  try {
+    canvas.setPointerCapture(e.pointerId);
+  } catch {
+    /* 이미 끝난 포인터 */
+  }
   // 머리를 잡으면 창을 옮기는 대신 쓰다듬기
   if (desktop && !press.onHead) bridge.dragStart();
 });
@@ -366,6 +390,42 @@ canvas.addEventListener('pointercancel', () => {
   clearTimeout(longPressTimer);
   press = null;
 });
+
+// 두 손가락 벌리기/오므리기 = 확대/축소, 마우스 휠도 확대/축소
+const touches = new Map();
+let pinch = null;
+canvas.addEventListener('pointerdown', (e) => {
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (touches.size === 2) {
+    // 두 번째 손가락: 탭·쓰다듬기·창 이동은 취소하고 핀치로
+    clearTimeout(longPressTimer);
+    if (desktop && press && !press.onHead) bridge.dragEnd();
+    press = null;
+    const [a, b] = [...touches.values()];
+    pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, z: zoom };
+  }
+});
+canvas.addEventListener('pointermove', (e) => {
+  if (!touches.has(e.pointerId)) return;
+  touches.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pinch && touches.size === 2) {
+    const [a, b] = [...touches.values()];
+    setZoom(pinch.z * (Math.hypot(a.x - b.x, a.y - b.y) / pinch.d));
+  }
+});
+for (const type of ['pointerup', 'pointercancel', 'pointerleave'])
+  canvas.addEventListener(type, (e) => {
+    touches.delete(e.pointerId);
+    if (touches.size < 2) pinch = null;
+  });
+canvas.addEventListener(
+  'wheel',
+  (e) => {
+    e.preventDefault();
+    setZoom(zoom * Math.exp(-e.deltaY * 0.0015));
+  },
+  { passive: false },
+);
 canvas.addEventListener('contextmenu', (e) => {
   e.preventDefault();
   if (desktop)
@@ -454,6 +514,27 @@ for (const [key, label] of [['auto', '🔁 자동'], ...Object.entries(STATES).f
   b.onclick = () => setMode(key);
   modes.appendChild(b);
 }
+
+// 🔍 크기 버튼
+const ZOOM_STEPS = [
+  [1, '기본'],
+  [1.8, '크게'],
+  [2.6, '아주 크게'],
+];
+for (const [z, label] of ZOOM_STEPS) {
+  const b = document.createElement('button');
+  b.dataset.v = z;
+  b.textContent = label;
+  b.onclick = () => setZoom(z);
+  $('zoom').appendChild(b);
+}
+function syncZoom() {
+  // 핀치로 조절한 값이면 가장 가까운 단계를 표시
+  let best = null;
+  for (const b of $('zoom').children) if (!best || Math.abs(b.dataset.v - zoom) < Math.abs(best.dataset.v - zoom)) best = b;
+  for (const b of $('zoom').children) b.classList.toggle('on', b === best && Math.abs(b.dataset.v - zoom) < 0.3);
+}
+syncZoom();
 
 function syncPanel() {
   for (const b of $('arms').querySelectorAll('button')) b.classList.toggle('on', b.dataset.v === armsMode);
