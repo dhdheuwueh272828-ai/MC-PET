@@ -638,24 +638,49 @@ window.addEventListener('drop', (e) => {
   if (file) loadSkinFromFile(file);
 });
 
-// ── Claude AI: 실시간 대사 · 말 걸기 · 새 동작 만들기 ──
+// ── AI: 실시간 대사 · 말 걸기 · 새 동작 만들기 ──
+// 모드: 내장(무료, 키 없음) / Gemini(무료 등급, 본인 키) / Claude(유료, 본인 키)
+// Gemini·Claude 를 못 쓰면(키 없음·한도 초과·오류) 자동으로 내장 AI 로 대신한다.
 let ai = null;
-const aiState = { lastLineAt: 0, lastPetLineAt: 0, busy: false, history: [] };
-const AI_MODELS = [
+const aiState = { lastLineAt: 0, lastPetLineAt: 0, busy: false, history: [], cooldownUntil: 0 };
+const PROVIDERS = [
+  ['offline', '🆓 내장'],
+  ['gemini', '✨ Gemini 무료'],
+  ['claude', 'Claude 유료'],
+];
+const CLAUDE_MODELS = [
   ['claude-opus-5-5', 'Opus 5.5'],
   ['claude-haiku-5-5', 'Haiku 5.5 (저렴)'],
 ];
-const aiKey = () => store.get('aiKey', '');
-const aiModel = () => store.get('aiModel', AI_MODELS[0][0]);
+const KEY_INFO = {
+  gemini: { store: 'geminiKey', name: 'Gemini', url: 'https://aistudio.google.com/apikey', hint: 'Google AI Studio 에서 무료로 발급 (AIza 로 시작)' },
+  claude: { store: 'aiKey', name: 'Claude', url: 'https://console.anthropic.com/settings/keys', hint: 'Claude Console 에서 발급 (sk-ant- 로 시작, 유료)' },
+};
+const aiProvider = () => store.get('aiProvider', 'gemini');
+const keyOf = (p) => (KEY_INFO[p] ? store.get(KEY_INFO[p].store, '') : '');
+const aiModel = () => store.get('aiModel', CLAUDE_MODELS[0][0]);
 const aiLines = () => store.get('aiLines', 'rare');
+// 지금 Gemini/Claude 를 쓸 수 있나 (아니면 내장 AI)
+const aiOnline = () => aiProvider() !== 'offline' && !!keyOf(aiProvider()) && Date.now() > aiState.cooldownUntil;
 
+let offline = null;
+async function getOffline() {
+  offline ??= await import('./offline.js');
+  return offline;
+}
 async function getAI() {
   if (!ai) {
     // SDK 는 AI 를 쓸 때만 불러온다 (처음 로딩을 가볍게)
     const { createAI } = await import('./ai.js');
-    ai = createAI({ getKey: aiKey, getModel: aiModel });
+    ai = createAI({ getProvider: aiProvider, getKey: keyOf, getModel: aiModel });
   }
   return ai;
+}
+
+// 한도 초과면 10분 동안 내장 AI 로
+function onAIError(e) {
+  if (e?.quota) aiState.cooldownUntil = Date.now() + 10 * 60 * 1000;
+  toast(e?.message || 'AI 를 쓰지 못해서 내장 AI 로 할게요');
 }
 
 const STATE_DESC = {
@@ -667,35 +692,49 @@ function aiContext(event) {
   const now = new Date();
   return {
     state: STATE_DESC[pet.state] ?? pet.state,
+    stateId: pet.state,
     place: THEMES.find(([id]) => id === deco.theme)?.[1].replace(/^\S+\s/, '') ?? '기본',
+    themeId: deco.theme,
     setup: deco.setup === 'desktop' ? '모니터+키보드+마우스' : '노트북',
     time: `${now.getHours()}시 ${now.getMinutes()}분`,
+    hour: now.getHours(),
     event,
     recent: recentLines.slice(-5),
   };
 }
 
-// 펫이 말하려 할 때: AI 대사가 켜져 있고 간격이 지났으면 Claude 에게 한마디를 받아 온다
+// 펫이 말하려 할 때: "AI 대사" 간격이 지났으면 AI(또는 내장 AI)가 상황에 맞는 한마디를 만든다
 function speak(line, state) {
   const interval = { rare: 300, often: 60 }[aiLines()];
   const immediate = ['wave', 'happy', 'aha', 'sleep', 'custom'].includes(state);
-  if (!aiKey() || !interval || immediate || aiState.busy || performance.now() / 1000 - aiState.lastLineAt < interval) {
+  const now = performance.now() / 1000;
+  if (!interval || immediate || aiState.busy || now - aiState.lastLineAt < interval) {
     say(line);
     return;
   }
+  aiState.lastLineAt = now;
+  if (!aiOnline()) {
+    getOffline().then((o) => say(o.offlineLine(aiContext())));
+    return;
+  }
   aiState.busy = true;
-  aiState.lastLineAt = performance.now() / 1000;
   getAI()
     .then((a) => a.line(aiContext()))
-    .then((text) => pet.state === state && say(text), () => say(line))
+    .then(
+      (text) => pet.state === state && say(text),
+      (e) => {
+        if (e?.quota) aiState.cooldownUntil = Date.now() + 10 * 60 * 1000;
+        getOffline().then((o) => say(o.offlineLine(aiContext())));
+      },
+    )
     .finally(() => (aiState.busy = false));
 }
 
-// 쓰다듬기 시작: 기본 반응을 바로 하고, AI 가 켜져 있으면 잠시 뒤 Claude 의 대사
+// 쓰다듬기 시작: 기본 반응을 바로 하고, AI 가 켜져 있으면 잠시 뒤 AI 의 대사
 function onPetted() {
-  if (!aiKey() || aiLines() === 'off' || aiState.busy) return;
+  if (!aiOnline() || aiLines() === 'off' || aiState.busy) return;
   const now = performance.now() / 1000;
-  if (now - aiState.lastPetLineAt < 20) return;
+  if (now - aiState.lastPetLineAt < 30) return;
   aiState.lastPetLineAt = now;
   aiState.busy = true;
   getAI()
@@ -704,23 +743,27 @@ function onPetted() {
     .finally(() => (aiState.busy = false));
 }
 
-// 입력 받기: 휴대폰·아이패드는 시스템 입력 창, Windows(Electron)는 직접 만든 창
-function ask(label, value = '') {
-  if (!desktop) return Promise.resolve(prompt(label, value));
+// 팝업 입력 창 (Windows 는 prompt() 를 지원하지 않아 모든 기기에서 같은 창을 쓴다)
+function openModal({ label, value = '', hint = '', link = null, paste = false, secret = false }) {
   return new Promise((resolve) => {
     const modal = $('modal');
     const input = $('modal-input');
     $('modal-label').textContent = label;
+    $('modal-hint').textContent = hint;
+    $('modal-link').hidden = !link;
+    if (link) $('modal-link').href = link;
+    $('modal-paste').hidden = !paste || !navigator.clipboard?.readText;
+    input.type = secret ? 'password' : 'text';
     input.value = value;
     modal.hidden = false;
-    if (ignoring) {
+    if (desktop && ignoring) {
       ignoring = false;
       bridge.setIgnoreMouse(false);
     }
-    setTimeout(() => input.focus(), 0);
+    setTimeout(() => input.focus(), 50);
     const done = (v) => {
       modal.hidden = true;
-      $('modal-form').onsubmit = $('modal-cancel').onclick = null;
+      $('modal-form').onsubmit = $('modal-cancel').onclick = $('modal-paste').onclick = null;
       resolve(v);
     };
     $('modal-form').onsubmit = (e) => {
@@ -728,10 +771,24 @@ function ask(label, value = '') {
       done(input.value);
     };
     $('modal-cancel').onclick = () => done(null);
+    // 입력칸에 키보드가 안 떠도 복사한 키를 바로 넣을 수 있게
+    $('modal-paste').onclick = async () => {
+      try {
+        input.value = (await navigator.clipboard.readText()).trim();
+      } catch {
+        toast('붙여넣기를 허용해 주세요');
+      }
+    };
   });
 }
 
-// 커스텀 동작 (Claude 가 만든 키프레임) — 이 기기에 저장
+// 짧은 글 입력: 휴대폰·아이패드는 시스템 입력 창(가장 확실), Windows 는 팝업
+function ask(label, value = '') {
+  if (!desktop) return Promise.resolve(prompt(label, value));
+  return openModal({ label, value });
+}
+
+// 커스텀 동작 — 이 기기에 저장
 function loadMotions() {
   const list = store.json('customMotions', []);
   return Array.isArray(list) ? list : [];
@@ -749,7 +806,7 @@ function renderMotions() {
   if (!list.length) {
     const p = document.createElement('p');
     p.className = 'empty';
-    p.textContent = '✨ 새 동작 만들기로 "춤추기", "만세 세 번" 처럼 설명하면 Claude 가 동작을 만들어요.';
+    p.textContent = '✨ 새 동작 만들기로 "춤추기", "만세 세 번 하고 박수" 처럼 설명하면 동작이 생겨요.';
     box.appendChild(p);
     return;
   }
@@ -781,24 +838,44 @@ function renderMotions() {
 }
 
 function syncAI() {
-  const key = aiKey();
-  $('ai-key-state').textContent = key ? `🔑 …${key.slice(-4)}` : '키 없음';
-  $('btn-ai-key').textContent = key ? '🔑 키 바꾸기' : '🔑 API 키 입력';
-  $('btn-ai-key-del').hidden = !key;
+  const p = aiProvider();
+  const info = KEY_INFO[p];
+  for (const b of $('ai-provider').children) b.classList.toggle('on', b.dataset.v === p);
+  $('ai-key-row').hidden = !info;
+  $('ai-model-row').hidden = p !== 'claude';
+  if (info) {
+    const key = keyOf(p);
+    $('ai-key-state').textContent = key ? `🔑 …${key.slice(-4)}` : '키 없음';
+    $('btn-ai-key').textContent = key ? '🔑 키 바꾸기' : `🔑 ${info.name} 키 입력`;
+    $('btn-ai-key-del').hidden = !key;
+  }
+  $('ai-mode-hint').textContent =
+    p === 'offline'
+      ? '🆓 키 없이 무료로 동작해요. 미리 만들어 둔 대사·키워드 대화·동작 조합을 써요.'
+      : p === 'gemini'
+        ? '✨ Google Gemini 무료 등급. 무료 한도에 걸리거나 키가 없으면 자동으로 내장 AI 로 바뀌어요.'
+        : '💳 Claude 는 쓴 만큼 요금이 나가요. Haiku 5.5 를 고르면 훨씬 저렴해요.';
   for (const b of $('ai-model').children) b.classList.toggle('on', b.dataset.v === aiModel());
   for (const b of $('ai-lines').children) b.classList.toggle('on', b.dataset.v === aiLines());
 }
 
-for (const [id, label] of AI_MODELS) {
-  const b = document.createElement('button');
-  b.dataset.v = id;
-  b.textContent = label;
-  b.onclick = () => {
-    store.set('aiModel', id);
-    syncAI();
-  };
-  $('ai-model').appendChild(b);
+function segButtons(el, items, onPick) {
+  for (const [id, label] of items) {
+    const b = document.createElement('button');
+    b.dataset.v = id;
+    b.textContent = label;
+    b.onclick = () => {
+      onPick(id);
+      syncAI();
+    };
+    el.appendChild(b);
+  }
 }
+segButtons($('ai-provider'), PROVIDERS, (id) => {
+  store.set('aiProvider', id);
+  aiState.cooldownUntil = 0;
+});
+segButtons($('ai-model'), CLAUDE_MODELS, (id) => store.set('aiModel', id));
 for (const b of $('ai-lines').children)
   b.onclick = () => {
     store.set('aiLines', b.dataset.v);
@@ -806,57 +883,86 @@ for (const b of $('ai-lines').children)
   };
 
 $('btn-ai-key').onclick = async () => {
-  const key = (await ask('Claude API 키를 붙여 넣어 주세요 (sk-ant-로 시작)'))?.trim();
+  const p = aiProvider();
+  const info = KEY_INFO[p];
+  if (!info) return;
+  const key = (
+    await openModal({ label: `${info.name} API 키`, hint: info.hint, link: info.url, paste: true, secret: true, value: '' })
+  )?.trim();
   if (!key) return;
-  if (!key.startsWith('sk-ant-')) return toast('Claude API 키는 sk-ant- 로 시작해요');
-  store.set('aiKey', key);
+  if (p === 'claude' && !key.startsWith('sk-ant-')) return toast('Claude API 키는 sk-ant- 로 시작해요');
+  store.set(info.store, key);
+  aiState.cooldownUntil = 0;
   syncAI();
-  toast('API 키 저장 완료 🔑');
+  toast(`${info.name} 키 저장 완료 🔑`);
 };
 $('btn-ai-key-del').onclick = () => {
-  if (!confirm('이 기기에서 API 키를 지울까요?')) return;
-  store.set('aiKey', null);
+  const info = KEY_INFO[aiProvider()];
+  if (!info || !confirm(`이 기기에서 ${info.name} 키를 지울까요?`)) return;
+  store.set(info.store, null);
   syncAI();
 };
+
+// 동작 이름(상태 또는 custom N, dance) 실행
+async function playMotionId(id) {
+  if (id === 'dance') {
+    const o = await getOffline();
+    pet.playCustom({ ...sanitizeMotion(o.offlineMotion('춤')), line: '' });
+  } else if (id.startsWith('custom')) {
+    const m = loadMotions()[Number(id.slice(6))];
+    if (m) pet.playCustom({ ...m, line: '' });
+  } else if (id === 'happy' || id === 'wave') {
+    pet.interrupt(id);
+  } else if (STATES[id]) {
+    pet.setState(id, { manual: store.get('mode', 'auto') !== 'auto' });
+  }
+}
 
 // 말 걸기: 대답 + 어울리는 동작
 $('btn-chat').onclick = async () => {
   const msg = (await ask('펫에게 할 말'))?.trim();
   if (!msg) return;
-  const motions = [
-    ...Object.entries(STATES)
-      .filter(([k]) => !['custom'].includes(k))
-      .map(([k, s]) => [k, s.label]),
-    ...loadMotions().map((m, i) => [`custom${i}`, `✨ ${m.name} (직접 만든 동작)`]),
-  ];
-  toast('💬 생각하는 중...');
-  try {
-    const a = await getAI();
-    const out = await a.chat(msg, aiContext(`주인이 "${msg}" 라고 말을 걸었어`), motions, aiState.history.slice(-4));
-    aiState.history.push([msg, out.line]);
-    if (out.motion.startsWith('custom')) {
-      const m = loadMotions()[Number(out.motion.slice(6))];
-      if (m) pet.playCustom({ ...m, line: '' });
-    } else if (out.motion === 'happy' || out.motion === 'wave') {
-      pet.interrupt(out.motion);
-    } else {
-      pet.setState(out.motion, { manual: store.get('mode', 'auto') !== 'auto' });
+  let out = null;
+  if (aiOnline()) {
+    const motions = [
+      ...Object.entries(STATES)
+        .filter(([k]) => k !== 'custom')
+        .map(([k, s]) => [k, s.label]),
+      ['dance', '춤추기'],
+      ...loadMotions().map((m, i) => [`custom${i}`, `✨ ${m.name} (직접 만든 동작)`]),
+    ];
+    toast('💬 생각하는 중...');
+    try {
+      const a = await getAI();
+      out = await a.chat(msg, aiContext(`주인이 "${msg}" 라고 말을 걸었어`), motions, aiState.history.slice(-4));
+      $('toast').hidden = true;
+    } catch (e) {
+      onAIError(e);
     }
-    say(out.line);
-    $('toast').hidden = true;
-  } catch (e) {
-    toast(e.message || 'Claude 와 대화하지 못했어요');
   }
+  out ??= (await getOffline()).offlineChat(msg);
+  aiState.history.push([msg, out.line]);
+  await playMotionId(out.motion);
+  pet.nextLineAt = pet.stateTime + 6; // 대답이 바로 다른 대사로 덮이지 않게
+  say(out.line);
 };
 
 // 새 동작 만들기
 $('btn-new-motion').onclick = async () => {
-  const desc = (await ask('어떤 동작을 만들까요? (예: 신나게 춤추기, 만세 세 번, 책 덮고 박수)'))?.trim();
+  const desc = (await ask('어떤 동작을 만들까요? (예: 신나게 춤추기, 만세 세 번 하고 박수)'))?.trim();
   if (!desc) return;
-  toast('✨ Claude 가 동작을 만드는 중... (10~30초)');
+  let raw = null;
+  if (aiOnline()) {
+    toast('✨ AI 가 동작을 만드는 중... (10~30초)');
+    try {
+      raw = await (await getAI()).motion(desc);
+    } catch (e) {
+      onAIError(e);
+    }
+  }
+  raw ??= (await getOffline()).offlineMotion(desc);
   try {
-    const a = await getAI();
-    const motion = sanitizeMotion(await a.motion(desc));
+    const motion = sanitizeMotion(raw);
     saveMotions([...loadMotions(), motion]);
     pet.playCustom(motion);
     toast(`'${motion.name}' 동작이 생겼어요!`);

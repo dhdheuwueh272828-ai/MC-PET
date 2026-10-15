@@ -1,5 +1,5 @@
 // Windows 데스크톱 펫: 투명·프레임 없는·항상 위 창
-const { app, BrowserWindow, Menu, ipcMain, dialog, screen } = require('electron');
+const { app, BrowserWindow, Menu, ipcMain, dialog, screen, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
@@ -50,6 +50,11 @@ function createWindow() {
   });
   win.setAlwaysOnTop(config.alwaysOnTop, 'floating');
   win.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  // 키 발급 페이지 같은 링크는 기본 브라우저로 연다
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
 
   win.on('moved', () => {
     if (compactBounds) return;
